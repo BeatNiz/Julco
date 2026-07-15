@@ -7,6 +7,6 @@ public sealed record UiSettings(
 {
     public static UiSettings Default { get; } = new(
         CdpPort: 9222,
-        LensInspectionDelayMs: 550,
+        LensInspectionDelayMs: 220,
         KeepResultWindowsTopmost: true);
 }

@@ -4,7 +4,7 @@
         Title="Julco Lens"
         Width="420"
         Height="260"
-        MinWidth="72"
+        MinWidth="240"
         MinHeight="72"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -22,13 +22,28 @@
                 Background="#22101318"
                 CornerRadius="4" />
 
-        <Border VerticalAlignment="Top"
+        <Border x:Name="HeaderBorder"
+                VerticalAlignment="Top"
                 Height="26"
                 Background="#E8181B22"
                 BorderBrush="#40C7FF"
                 BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="Header_MouseLeftButtonDown">
             <DockPanel Margin="8,0">
+                <Button x:Name="CaptureButton"
+                        DockPanel.Dock="Left"
+                        Content="⌖"
+                        Width="22"
+                        Height="20"
+                        Padding="0"
+                        Margin="0,0,8,0"
+                        Background="#25313D"
+                        BorderBrush="#66D9FF"
+                        Foreground="#FFFFFF"
+                        FontSize="13"
+                        FontWeight="SemiBold"
+                        ToolTip="Capture the current lens region."
+                        Click="CaptureButton_Click" />
                 <TextBlock x:Name="PositionTextBlock"
                            Text="Lens"
                            VerticalAlignment="Center"
@@ -38,7 +53,8 @@
             </DockPanel>
         </Border>
 
-        <Grid IsHitTestVisible="False"
+        <Grid x:Name="GuideGrid"
+              IsHitTestVisible="False"
               Margin="2,26,2,2">
             <Rectangle Height="1"
                        Fill="#6640C7FF"

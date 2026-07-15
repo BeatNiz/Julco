@@ -65,7 +65,8 @@ public sealed class SelectorInspectionService
             outerHtml,
             computedStyle,
             matchedRules,
-            connection.ConsoleMessages);
+            connection.ConsoleMessages,
+            ExtractImagesFromHtml(outerHtml));
     }
 
     public async Task<SelectorInspectionResult> InspectScreenPointAsync(
@@ -150,6 +151,82 @@ public sealed class SelectorInspectionService
                     attributes[attribute.name] = attribute.value;
                 }
 
+                const imageExtensions = [
+                    "png", "jpg", "jpeg", "webp", "gif", "avif", "svg", "bmp", "ico",
+                    "apng", "tif", "tiff", "jfif", "pjpeg", "pjp", "heic", "heif",
+                    "jxl", "jp2", "j2k", "jpf", "jpx", "jpm", "mj2", "dds", "tga",
+                    "psd", "raw", "cr2", "nef", "orf", "arw"
+                ];
+                const normalizeUrl = value => {
+                    if (!value || typeof value !== "string") return "";
+                    const trimmed = value.trim();
+                    if (!trimmed || trimmed.startsWith("data:")) return trimmed;
+                    try { return new URL(trimmed, document.baseURI).href; } catch { return trimmed; }
+                };
+                const formatFromUrl = url => {
+                    if (!url) return "unknown";
+                    const dataMatch = /^data:image\/([^;,]+)/i.exec(url);
+                    if (dataMatch) return dataMatch[1].toLowerCase();
+                    try {
+                        const path = new URL(url, document.baseURI).pathname.toLowerCase();
+                        const extension = path.includes(".") ? path.split(".").pop() : "";
+                        return imageExtensions.includes(extension) ? extension : "unknown";
+                    } catch {
+                        const clean = url.split("?")[0].split("#")[0].toLowerCase();
+                        const extension = clean.includes(".") ? clean.split(".").pop() : "";
+                        return imageExtensions.includes(extension) ? extension : "unknown";
+                    }
+                };
+                const images = [];
+                const seenImages = new Set();
+                const addImage = (url, kind, imageElement, alt = "") => {
+                    const normalized = normalizeUrl(url);
+                    if (!normalized || seenImages.has(normalized)) return;
+                    const format = formatFromUrl(normalized);
+                    if (format === "unknown" && !normalized.startsWith("blob:")) return;
+                    seenImages.add(normalized);
+                    images.push({
+                        url: normalized,
+                        kind,
+                        format,
+                        alt: alt || imageElement?.getAttribute?.("alt") || imageElement?.getAttribute?.("aria-label") || "",
+                        width: Math.round(imageElement?.naturalWidth || imageElement?.videoWidth || imageElement?.clientWidth || 0),
+                        height: Math.round(imageElement?.naturalHeight || imageElement?.videoHeight || imageElement?.clientHeight || 0),
+                        isAnimated: format === "gif" || format === "apng" || format === "webp"
+                    });
+                };
+                const addSrcSet = (srcset, kind, imageElement) => {
+                    if (!srcset) return;
+                    for (const candidate of srcset.split(",")) {
+                        addImage(candidate.trim().split(/\s+/)[0], kind, imageElement);
+                    }
+                };
+                const addCssImages = (cssValue, imageElement) => {
+                    if (!cssValue || cssValue === "none") return;
+                    for (const match of cssValue.matchAll(/url\((['"]?)(.*?)\1\)/g)) {
+                        addImage(match[2], "css-image", imageElement);
+                    }
+                };
+                for (const item of [element, ...element.querySelectorAll("*")]) {
+                    const tag = item.localName;
+                    if (tag === "img" || tag === "image") {
+                        addImage(item.currentSrc || item.src || item.href?.baseVal, tag, item);
+                        addSrcSet(item.srcset, "srcset", item);
+                    }
+                    if (tag === "source") {
+                        addImage(item.src, "source", item);
+                        addSrcSet(item.srcset, "source-srcset", item);
+                    }
+                    if (tag === "video") {
+                        addImage(item.poster, "video-poster", item);
+                    }
+                    const style = getComputedStyle(item);
+                    addCssImages(style.backgroundImage, item);
+                    addCssImages(style.borderImageSource, item);
+                    addCssImages(style.listStyleImage, item);
+                    addCssImages(style.content, item);
+                }
+
                 const selector = (() => {
                     if (element.id) return `#${CSS.escape(element.id)}`;
                     const parts = [];
@@ -180,7 +257,8 @@ public sealed class SelectorInspectionService
                     tagName: element.tagName,
                     attributes,
                     outerHtml: element.outerHTML,
-                    computedStyle
+                    computedStyle,
+                    images
                 };
             })()
             """;
@@ -210,6 +288,9 @@ public sealed class SelectorInspectionService
         var outerHtml = value.GetProperty("outerHtml").GetString() ?? string.Empty;
         var attributes = ReadObjectDictionary(value.GetProperty("attributes"));
         var computedStyle = ReadObjectDictionary(value.GetProperty("computedStyle"));
+        var images = value.TryGetProperty("images", out var imagesElement)
+            ? ReadImages(imagesElement)
+            : ExtractImagesFromHtml(outerHtml);
 
         return new SelectorInspectionResult(
             selector,
@@ -218,7 +299,8 @@ public sealed class SelectorInspectionService
             outerHtml,
             computedStyle,
             Array.Empty<string>(),
-            connection.ConsoleMessages);
+            connection.ConsoleMessages,
+            images);
     }
 
     private static async Task EnableIfAvailableAsync(
@@ -263,6 +345,76 @@ public sealed class SelectorInspectionService
                 property => property.Value.ValueKind == JsonValueKind.String
                     ? property.Value.GetString() ?? string.Empty
                     : property.Value.ToString());
+    }
+
+    private static IReadOnlyList<WebImageResource> ReadImages(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<WebImageResource>();
+        }
+
+        return element.EnumerateArray()
+            .Select(ReadImage)
+            .Where(image => !string.IsNullOrWhiteSpace(image.Url))
+            .DistinctBy(image => image.Url)
+            .ToArray();
+    }
+
+    private static WebImageResource ReadImage(JsonElement element)
+    {
+        return new WebImageResource(
+            GetString(element, "url"),
+            GetString(element, "kind"),
+            GetString(element, "format"),
+            GetString(element, "alt"),
+            GetInt(element, "width"),
+            GetInt(element, "height"),
+            element.TryGetProperty("isAnimated", out var animated) && animated.ValueKind == JsonValueKind.True);
+    }
+
+    private static IReadOnlyList<WebImageResource> ExtractImagesFromHtml(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return Array.Empty<WebImageResource>();
+        }
+
+        var matches = System.Text.RegularExpressions.Regex.Matches(
+            html,
+            """(?:src|href|poster)=["'](?<url>[^"']+\.(?:png|jpe?g|webp|gif|avif|svg|bmp|ico|apng|tiff?|jfif|pjpe?g|heic|heif|jxl|jp2|j2k|jpf|jpx|jpm|mj2|dds|tga|psd|raw|cr2|nef|orf|arw)(?:\?[^"']*)?)["']""",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        return matches
+            .Select(match =>
+            {
+                var url = match.Groups["url"].Value;
+                var format = url.Split('?')[0].Split('#')[0].Split('.').LastOrDefault() ?? "unknown";
+                return new WebImageResource(
+                    url,
+                    "html",
+                    format.ToLowerInvariant(),
+                    string.Empty,
+                    0,
+                    0,
+                    format.Equals("gif", StringComparison.OrdinalIgnoreCase));
+            })
+            .DistinctBy(image => image.Url)
+            .ToArray();
+    }
+
+    private static string GetString(JsonElement element, string property)
+    {
+        return element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    private static int GetInt(JsonElement element, string property)
+    {
+        return element.TryGetProperty(property, out var value) && value.TryGetInt32(out var result)
+            ? result
+            : 0;
     }
 
     private static async Task<IReadOnlyList<string>> GetMatchedRulesAsync(

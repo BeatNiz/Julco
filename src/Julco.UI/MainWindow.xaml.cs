@@ -15,7 +15,9 @@ public partial class MainWindow : Window
 {
     private readonly ChromiumBrowserLauncher _browserLauncher = new();
     private readonly CdpEndpointClient _endpointClient = new();
+    private readonly FirefoxBidiEndpointClient _firefoxEndpointClient = new();
     private readonly SelectorInspectionService _inspectionService = new();
+    private readonly FirefoxBidiInspectionService _firefoxInspectionService = new();
     private readonly JsonSettingsStore _settingsStore = new(GetSettingsPath());
     private readonly List<string> _history = new();
     private readonly List<CaptureFileRecord> _captureFiles = new();
@@ -24,10 +26,12 @@ public partial class MainWindow : Window
     private LensWindow? _lensWindow;
     private LensFrameState? _lastLensState;
     private Window? _activeResultWindow;
+    private ImageResourcesWindow? _imageResourcesWindow;
     private string? _activeResultKind;
     private BrowserKind? _activeBrowser;
     private bool _isInspectingLens;
     private bool _isCompactMode;
+    private string? _lastLiveLensHistoryKey;
     private AppSettings _settings = AppSettings.Default;
 
     public MainWindow()
@@ -47,16 +51,15 @@ public partial class MainWindow : Window
 
     private async void LaunchOperaButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Opera);
 
-    private void LaunchFirefoxButton_Click(object sender, RoutedEventArgs e)
-    {
-        SetStatus("Firefox is not CDP-compatible. Julco needs a separate WebDriver BiDi adapter for full Firefox inspection.");
-    }
+    private async void LaunchFirefoxButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Firefox);
 
     private async void RefreshTargetsButton_Click(object sender, RoutedEventArgs e) => await RefreshTargetsAsync();
 
     private async void InspectButton_Click(object sender, RoutedEventArgs e) => await InspectSelectedTargetAsync();
 
     private void LensButton_Click(object sender, RoutedEventArgs e) => ToggleLens();
+
+    private void HelpButton_Click(object sender, RoutedEventArgs e) => OpenHelp();
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await OpenSettingsAsync();
 
@@ -67,6 +70,8 @@ public partial class MainWindow : Window
     private void ShowConsoleButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Console", ConsoleTextBox.Text);
 
     private void ShowAttributesButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Attributes", AttributesTextBox.Text);
+
+    private void ShowImagesButton_Click(object sender, RoutedEventArgs e) => ShowImagesWindow();
 
     private async void CaptureLensButton_Click(object sender, RoutedEventArgs e) => await CaptureLensAsync();
 
@@ -148,13 +153,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            SetBusy(true, $"Opening {browserKind} with CDP...");
+            SetBusy(true, $"Opening {browserKind} with remote inspection...");
             var port = GetPort();
             var process = browserKind switch
             {
                 BrowserKind.Chrome => _browserLauncher.LaunchChrome(port, "https://example.com"),
                 BrowserKind.Edge => _browserLauncher.LaunchEdge(port, "https://example.com"),
                 BrowserKind.Opera => _browserLauncher.LaunchOpera(port, "https://example.com"),
+                BrowserKind.Firefox => _browserLauncher.LaunchFirefox(port, "https://example.com"),
                 _ => null
             };
 
@@ -166,8 +172,9 @@ public partial class MainWindow : Window
 
             await Task.Delay(1200);
             _activeBrowser = browserKind;
+            PortLabelTextBlock.Text = browserKind == BrowserKind.Firefox ? "BiDi" : "CDP";
             await RefreshTargetsAsync();
-            SetStatus($"{browserKind} opened on CDP port {port}.");
+            SetStatus($"{browserKind} opened on port {port}.");
         }
         catch (Exception exception)
         {
@@ -183,8 +190,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            SetBusy(true, "Reading CDP tabs...");
-            var targets = await _endpointClient.GetPageTargetsAsync(GetPort(), CancellationToken.None);
+            var isFirefox = _activeBrowser == BrowserKind.Firefox;
+            SetBusy(true, isFirefox ? "Reading Firefox BiDi tabs..." : "Reading CDP tabs...");
+            var targets = isFirefox
+                ? await _firefoxEndpointClient.GetPageTargetsAsync(GetPort(), CancellationToken.None)
+                : await _endpointClient.GetPageTargetsAsync(GetPort(), CancellationToken.None);
             TargetsComboBox.ItemsSource = targets;
 
             if (targets.Count > 0)
@@ -199,7 +209,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            SetStatus($"Could not read CDP: {exception.Message}");
+            SetStatus($"Could not read browser tabs: {exception.Message}");
         }
         finally
         {
@@ -222,7 +232,7 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, $"Inspecting {selector}...");
-            var result = await _inspectionService.InspectAsync(target, selector, CancellationToken.None);
+            var result = await InspectSelectorAsync(target, selector, CancellationToken.None);
             ShowInspection(target, result);
             AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  {selector}");
             SetStatus("Inspection completed.");
@@ -251,6 +261,7 @@ public partial class MainWindow : Window
         };
         _lensWindow.LensChanged += LensWindow_LensChanged;
         _lensWindow.InspectCenterRequested += LensWindow_InspectCenterRequested;
+        _lensWindow.CaptureRequested += LensWindow_CaptureRequested;
         _lensWindow.Closed += LensWindow_Closed;
         _lensWindow.Show();
         PlaceLensNearMainWindow(_lensWindow);
@@ -269,16 +280,24 @@ public partial class MainWindow : Window
 
     private async void LensWindow_InspectCenterRequested(object? sender, LensFrameState state) => await InspectLensCenterAsync(state);
 
+    private async void LensWindow_CaptureRequested(object? sender, LensFrameState state)
+    {
+        _lastLensState = state;
+        await CaptureLensAsync();
+    }
+
     private void LensWindow_Closed(object? sender, EventArgs e)
     {
         if (_lensWindow is not null)
         {
             _lensWindow.LensChanged -= LensWindow_LensChanged;
             _lensWindow.InspectCenterRequested -= LensWindow_InspectCenterRequested;
+            _lensWindow.CaptureRequested -= LensWindow_CaptureRequested;
             _lensWindow.Closed -= LensWindow_Closed;
         }
 
         _lensWindow = null;
+        _lastLiveLensHistoryKey = null;
         LensButton.Content = "Lens";
         LensStateTextBlock.Text = "Inactive";
         _autoLensTimer.Stop();
@@ -294,22 +313,28 @@ public partial class MainWindow : Window
 
         if (TargetsComboBox.SelectedItem is not CdpTarget target)
         {
-            SetStatus("Select a CDP tab before inspecting with the lens.");
+            SetStatus("Select a browser tab before inspecting with the lens.");
             return;
         }
 
         try
         {
             _isInspectingLens = true;
-            SetBusy(true, $"Inspecting center {state.CenterPoint.X:0},{state.CenterPoint.Y:0}...");
-            var result = await _inspectionService.InspectScreenPointAsync(
+            SetStatus($"Inspecting center {state.CenterPoint.X:0},{state.CenterPoint.Y:0}...");
+            var result = await InspectScreenPointAsync(
                 target,
                 state.CenterPoint.X,
                 state.CenterPoint.Y,
                 CancellationToken.None);
 
             ShowInspection(target, result);
-            AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  lens center");
+            var historyKey = $"{result.TagName}|{result.Selector}";
+            if (!string.Equals(_lastLiveLensHistoryKey, historyKey, StringComparison.Ordinal))
+            {
+                _lastLiveLensHistoryKey = historyKey;
+                AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  live lens");
+            }
+
             SetStatus("Lens inspection completed.");
         }
         catch (Exception exception)
@@ -319,7 +344,6 @@ public partial class MainWindow : Window
         finally
         {
             _isInspectingLens = false;
-            SetBusy(false);
         }
     }
 
@@ -338,6 +362,33 @@ public partial class MainWindow : Window
         AttributesTextBox.Text = string.Join(
             Environment.NewLine,
             result.Attributes.Select(item => $"{item.Key}=\"{item.Value}\""));
+        _imageResourcesWindow?.SetImages(result.Images);
+    }
+
+    private Task<SelectorInspectionResult> InspectSelectorAsync(
+        CdpTarget target,
+        string selector,
+        CancellationToken cancellationToken)
+    {
+        return IsFirefoxTarget(target)
+            ? _firefoxInspectionService.InspectAsync(target, selector, cancellationToken)
+            : _inspectionService.InspectAsync(target, selector, cancellationToken);
+    }
+
+    private Task<SelectorInspectionResult> InspectScreenPointAsync(
+        CdpTarget target,
+        double screenX,
+        double screenY,
+        CancellationToken cancellationToken)
+    {
+        return IsFirefoxTarget(target)
+            ? _firefoxInspectionService.InspectScreenPointAsync(target, screenX, screenY, cancellationToken)
+            : _inspectionService.InspectScreenPointAsync(target, screenX, screenY, cancellationToken);
+    }
+
+    private static bool IsFirefoxTarget(CdpTarget target)
+    {
+        return target.Type.Equals("firefox-page", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task CaptureLensAsync()
@@ -350,7 +401,7 @@ public partial class MainWindow : Window
 
         if (TargetsComboBox.SelectedItem is not CdpTarget target)
         {
-            SetStatus("Select a CDP tab before creating a capture.");
+            SetStatus("Select a browser tab before creating a capture.");
             return;
         }
 
@@ -358,7 +409,7 @@ public partial class MainWindow : Window
         {
             SetBusy(true, "Creating capture package...");
             var state = _lastLensState;
-            var inspection = await _inspectionService.InspectScreenPointAsync(
+            var inspection = await InspectScreenPointAsync(
                 target,
                 state.CenterPoint.X,
                 state.CenterPoint.Y,
@@ -386,6 +437,9 @@ public partial class MainWindow : Window
             File.WriteAllText(
                 Path.Combine(captureDirectory, "attributes.txt"),
                 string.Join(Environment.NewLine, inspection.Attributes.Select(item => $"{item.Key}=\"{item.Value}\"")));
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "image-resources.json"),
+                JsonSerializer.Serialize(inspection.Images, jsonOptions));
 
             var manifest = new CaptureManifest(
                 DateTimeOffset.Now,
@@ -456,6 +510,7 @@ public partial class MainWindow : Window
         }
 
         _autoLensTimer.Stop();
+        _autoLensTimer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_settings.Ui.LensInspectionDelayMs, 150, 260));
         _autoLensTimer.Start();
     }
 
@@ -488,6 +543,27 @@ public partial class MainWindow : Window
         }
 
         ToggleResultWindow(title, () => new ResultWindow(title, content));
+    }
+
+    private void ShowImagesWindow()
+    {
+        if (_imageResourcesWindow is not null)
+        {
+            _imageResourcesWindow.Activate();
+            _imageResourcesWindow.SetImages(_currentInspection?.Images ?? Array.Empty<WebImageResource>());
+            return;
+        }
+
+        var window = new ImageResourcesWindow(_currentInspection?.Images ?? Array.Empty<WebImageResource>())
+        {
+            Owner = this,
+            Topmost = _settings.Ui.KeepResultWindowsTopmost
+        };
+
+        _imageResourcesWindow = window;
+        window.Closed += (_, _) => _imageResourcesWindow = null;
+        PlaceResultWindow(window);
+        window.Show();
     }
 
     private void ToggleResultWindow(string kind, Func<Window> createWindow)
@@ -605,8 +681,26 @@ public partial class MainWindow : Window
     private void PlaceLensNearMainWindow(LensWindow lensWindow)
     {
         var area = GetCurrentScreen().WorkingArea;
-        lensWindow.Left = area.Left + Math.Min(120, Math.Max(20, area.Width * 0.08));
-        lensWindow.Top = area.Top + Math.Min(120, Math.Max(20, area.Height * 0.08));
+        var gap = 16;
+        var lensWidth = lensWindow.Width;
+        var lensHeight = lensWindow.Height;
+        var mainCenterX = Left + ActualWidth / 2;
+        var screenCenterX = area.Left + area.Width / 2.0;
+        var placeLeft = mainCenterX >= screenCenterX;
+
+        var preferredLeft = placeLeft
+            ? Left - lensWidth - gap
+            : Left + ActualWidth + gap;
+
+        if (preferredLeft < area.Left + 12 || preferredLeft + lensWidth > area.Right - 12)
+        {
+            preferredLeft = placeLeft
+                ? area.Left + 20
+                : area.Right - lensWidth - 20;
+        }
+
+        lensWindow.Left = Math.Clamp(preferredLeft, area.Left + 8, area.Right - lensWidth - 8);
+        lensWindow.Top = Math.Clamp(Top + 20, area.Top + 8, area.Bottom - lensHeight - 8);
     }
 
     private void PlaceResultWindowForCompactMode(Window window)
@@ -835,6 +929,7 @@ public partial class MainWindow : Window
         LaunchFirefoxButton.IsEnabled = !isBusy;
         RefreshTargetsButton.IsEnabled = !isBusy;
         LensButton.IsEnabled = !isBusy;
+        HelpButton.IsEnabled = !isBusy;
         SettingsButton.IsEnabled = !isBusy;
         InspectButton.IsEnabled = !isBusy;
         CaptureLensButton.IsEnabled = !isBusy;
@@ -845,6 +940,7 @@ public partial class MainWindow : Window
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
+        ShowImagesButton.IsEnabled = !isBusy;
 
         if (message is not null)
         {
@@ -855,6 +951,16 @@ public partial class MainWindow : Window
     private void SetStatus(string message)
     {
         StatusTextBlock.Text = message;
+    }
+
+    private void OpenHelp()
+    {
+        var window = new HelpWindow
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
     }
 
     private string GetCaptureRootDirectory()

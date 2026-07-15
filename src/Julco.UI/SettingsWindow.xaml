@@ -59,7 +59,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="CDP port" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" />
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Remote port" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" />
             <TextBox x:Name="CdpPortTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" />
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Captures folder" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" Margin="0,12,0,0" />

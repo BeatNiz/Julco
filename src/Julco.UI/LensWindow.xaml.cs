@@ -1,7 +1,9 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Julco.Capture;
 using Julco.Core.Geometry;
+using Forms = System.Windows.Forms;
 
 namespace Julco.UI;
 
@@ -21,11 +23,18 @@ public partial class LensWindow : Window
 
     public event EventHandler<LensFrameState>? InspectCenterRequested;
 
+    public event EventHandler<LensFrameState>? CaptureRequested;
+
     public LensFrameState State { get; private set; } = LensFrameState.FromBounds(
         new ScreenRect(160, 140, 420, 260));
 
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (e.OriginalSource is System.Windows.Controls.Button)
+        {
+            return;
+        }
+
         if (_isPinned)
         {
             return;
@@ -78,6 +87,12 @@ public partial class LensWindow : Window
         RequestCenterInspection();
     }
 
+    private void CaptureButton_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateState();
+        CaptureRequested?.Invoke(this, State);
+    }
+
     private void UpdateState()
     {
         var bounds = GetScreenBounds();
@@ -89,6 +104,7 @@ public partial class LensWindow : Window
 
         PositionTextBlock.Text =
             $"Center {State.CenterPoint.X:0},{State.CenterPoint.Y:0}  |  {State.Bounds.Width:0}x{State.Bounds.Height:0}";
+        UpdateHeaderPlacement(bounds);
 
         LensChanged?.Invoke(
             this,
@@ -96,6 +112,25 @@ public partial class LensWindow : Window
                 State,
                 _isPinned ? LensFrameChangeKind.Pinned : LensFrameChangeKind.Moved));
 
+    }
+
+    private void UpdateHeaderPlacement(ScreenRect bounds)
+    {
+        var screen = Forms.Screen.FromPoint(new System.Drawing.Point(
+            (int)Math.Round(bounds.X + bounds.Width / 2),
+            (int)Math.Round(bounds.Y + bounds.Height / 2)));
+        var area = screen.WorkingArea;
+        var shouldMoveHeaderDown = bounds.Y <= area.Top + 32;
+
+        HeaderBorder.VerticalAlignment = shouldMoveHeaderDown
+            ? VerticalAlignment.Bottom
+            : VerticalAlignment.Top;
+        HeaderBorder.BorderThickness = shouldMoveHeaderDown
+            ? new Thickness(0, 1, 0, 0)
+            : new Thickness(0, 0, 0, 1);
+        GuideGrid.Margin = shouldMoveHeaderDown
+            ? new Thickness(2, 2, 2, 26)
+            : new Thickness(2, 26, 2, 2);
     }
 
     private ScreenRect GetScreenBounds()

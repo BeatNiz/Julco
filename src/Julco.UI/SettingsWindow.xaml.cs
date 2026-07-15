@@ -40,7 +40,7 @@ public partial class SettingsWindow : Window
     {
         if (!int.TryParse(CdpPortTextBox.Text, out var port) || port <= 0 || port > 65535)
         {
-            ShowValidation("CDP port must be between 1 and 65535.");
+            ShowValidation("Remote port must be between 1 and 65535.");
             return;
         }
 

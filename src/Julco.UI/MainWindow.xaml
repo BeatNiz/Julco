@@ -108,6 +108,7 @@
                            VerticalAlignment="Center"
                            Margin="10,0,0,0">
                     <TextBlock Text="CDP"
+                               x:Name="PortLabelTextBlock"
                                VerticalAlignment="Center"
                                Foreground="{StaticResource MutedText}"
                                Margin="0,0,8,0" />
@@ -141,7 +142,7 @@
                             Content="F"
                             Foreground="#FF7A18"
                             Style="{StaticResource BrowserLogoButton}"
-                            ToolTip="Firefox uses a different protocol; Julco will explain the limitation."
+                            ToolTip="Open Firefox with WebDriver BiDi on the configured port."
                             Click="LaunchFirefoxButton_Click"
                             Margin="0,0,8,0" />
                     <Button x:Name="RefreshTargetsButton"
@@ -153,6 +154,11 @@
                             Content="Lens"
                             ToolTip="Open or close the technical lens frame."
                             Click="LensButton_Click"
+                            Margin="0,0,8,0" />
+                    <Button x:Name="HelpButton"
+                            Content="?"
+                            ToolTip="Open Julco help and recommended browser ports."
+                            Click="HelpButton_Click"
                             Margin="0,0,8,0" />
                     <Button x:Name="SettingsButton"
                             Content="⚙"
@@ -316,6 +322,11 @@
                                     ToolTip="Show attributes for the selected element."
                                     Click="ShowAttributesButton_Click"
                                     Margin="4,4,0,0" />
+                            <Button x:Name="ShowImagesButton"
+                                    Content="Images"
+                                    ToolTip="Preview and save image resources found in the inspected area."
+                                    Click="ShowImagesButton_Click"
+                                    Margin="0,4,4,0" />
                         </UniformGrid>
                         <Button x:Name="CopyHtmlButton"
                                 Content="Copy HTML"

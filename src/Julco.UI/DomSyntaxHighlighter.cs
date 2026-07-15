@@ -8,12 +8,12 @@ namespace Julco.UI;
 public static class DomSyntaxHighlighter
 {
     private static readonly MediaBrush Background = Brush("#050608");
-    private static readonly MediaBrush PlainText = Brush("#D4D4D4");
-    private static readonly MediaBrush Tag = Brush("#569CD6");
+    private static readonly MediaBrush PlainText = Brush("#E7EAF0");
+    private static readonly MediaBrush Tag = Brush("#6CB6FF");
     private static readonly MediaBrush Attribute = Brush("#9CDCFE");
-    private static readonly MediaBrush Value = Brush("#CE9178");
-    private static readonly MediaBrush Symbol = Brush("#808080");
-    private static readonly MediaBrush Comment = Brush("#6A9955");
+    private static readonly MediaBrush Value = Brush("#F4B183");
+    private static readonly MediaBrush Symbol = Brush("#B8C0CC");
+    private static readonly MediaBrush Comment = Brush("#7BD88F");
 
     private static readonly Regex TagRegex = new(
         @"(?<comment><!--.*?-->)|(?<tag></?)(?<name>[a-zA-Z][\w:-]*)(?<attrs>[^<>]*?)(?<end>/?>)",
