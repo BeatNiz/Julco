@@ -1,0 +1,77 @@
+<Window x:Class="Julco.UI.DomResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Julco - DOM"
+        Width="840"
+        Height="620"
+        MinWidth="420"
+        MinHeight="320"
+        Background="#050608"
+        Foreground="#F4F6F8"
+        Topmost="True">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="42" />
+            <RowDefinition Height="150" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#111318" BorderBrush="#2A2F3A" BorderThickness="0,0,0,1">
+            <TextBlock Text="DOM"
+                       VerticalAlignment="Center"
+                       Margin="14,0"
+                       FontWeight="SemiBold" />
+        </Border>
+
+        <Grid Grid.Row="1" Margin="12,10,12,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="3*" />
+            </Grid.ColumnDefinitions>
+
+            <ListView x:Name="AttributesListView"
+                      Grid.Column="0"
+                      Background="#050608"
+                      Foreground="#F4F6F8"
+                      BorderBrush="#2A2F3A"
+                      SelectionChanged="AttributesListView_SelectionChanged">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="ToolTip" Value="{Binding Description}" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Attribute" DisplayMemberBinding="{Binding Name}" Width="120" />
+                        <GridViewColumn Header="Value" DisplayMemberBinding="{Binding Value}" Width="260" />
+                    </GridView>
+                </ListView.View>
+            </ListView>
+
+            <Border Grid.Column="2"
+                    Background="#181B22"
+                    BorderBrush="#2A2F3A"
+                    BorderThickness="1"
+                    Padding="10">
+                <TextBlock x:Name="AttributeHelpTextBlock"
+                           Text="Select an attribute to see what it is and why it matters."
+                           TextWrapping="Wrap"
+                           Foreground="#D8DEE9" />
+            </Border>
+        </Grid>
+
+        <RichTextBox x:Name="DomRichTextBox"
+                     Grid.Row="2"
+                     Margin="12"
+                     IsReadOnly="True"
+                     IsDocumentEnabled="True"
+                     Background="#050608"
+                     Foreground="#D4D4D4"
+                     BorderBrush="#2A2F3A"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas"
+                     FontSize="13" />
+    </Grid>
+</Window>

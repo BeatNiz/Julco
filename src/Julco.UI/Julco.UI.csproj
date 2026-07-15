@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>Resources\julco.ico</ApplicationIcon>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Resources\julco.ico" />
+    <Resource Include="Resources\julco-logo-dark.png" />
+    <Resource Include="Resources\julco-logo.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Julco.Browser\Julco.Browser.csproj" />
+    <ProjectReference Include="..\Julco.Capture\Julco.Capture.csproj" />
+    <ProjectReference Include="..\Julco.Cdp\Julco.Cdp.csproj" />
+    <ProjectReference Include="..\Julco.Configuration\Julco.Configuration.csproj" />
+    <ProjectReference Include="..\Julco.Core\Julco.Core.csproj" />
+    <ProjectReference Include="..\Julco.Export\Julco.Export.csproj" />
+    <ProjectReference Include="..\Julco.History\Julco.History.csproj" />
+  </ItemGroup>
+</Project>

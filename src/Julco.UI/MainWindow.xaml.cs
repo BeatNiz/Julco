@@ -1,0 +1,979 @@
+using System.IO;
+using System.Diagnostics;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Threading;
+using Julco.Configuration;
+using Julco.Capture;
+using Julco.Cdp;
+using Julco.Core.Configuration;
+using Forms = System.Windows.Forms;
+
+namespace Julco.UI;
+
+public partial class MainWindow : Window
+{
+    private readonly ChromiumBrowserLauncher _browserLauncher = new();
+    private readonly CdpEndpointClient _endpointClient = new();
+    private readonly SelectorInspectionService _inspectionService = new();
+    private readonly JsonSettingsStore _settingsStore = new(GetSettingsPath());
+    private readonly List<string> _history = new();
+    private readonly List<CaptureFileRecord> _captureFiles = new();
+    private readonly DispatcherTimer _autoLensTimer;
+    private SelectorInspectionResult? _currentInspection;
+    private LensWindow? _lensWindow;
+    private LensFrameState? _lastLensState;
+    private Window? _activeResultWindow;
+    private string? _activeResultKind;
+    private BrowserKind? _activeBrowser;
+    private bool _isInspectingLens;
+    private bool _isCompactMode;
+    private AppSettings _settings = AppSettings.Default;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        _autoLensTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(550)
+        };
+        _autoLensTimer.Tick += AutoLensTimer_Tick;
+        Loaded += MainWindow_Loaded;
+    }
+
+    private async void LaunchChromeButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Chrome);
+
+    private async void LaunchEdgeButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Edge);
+
+    private async void LaunchOperaButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Opera);
+
+    private void LaunchFirefoxButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetStatus("Firefox is not CDP-compatible. Julco needs a separate WebDriver BiDi adapter for full Firefox inspection.");
+    }
+
+    private async void RefreshTargetsButton_Click(object sender, RoutedEventArgs e) => await RefreshTargetsAsync();
+
+    private async void InspectButton_Click(object sender, RoutedEventArgs e) => await InspectSelectedTargetAsync();
+
+    private void LensButton_Click(object sender, RoutedEventArgs e) => ToggleLens();
+
+    private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await OpenSettingsAsync();
+
+    private void ShowDomButton_Click(object sender, RoutedEventArgs e) => ShowDomWindow();
+
+    private void ShowCssButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Computed CSS", ComputedTextBox.Text);
+
+    private void ShowConsoleButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Console", ConsoleTextBox.Text);
+
+    private void ShowAttributesButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Attributes", AttributesTextBox.Text);
+
+    private async void CaptureLensButton_Click(object sender, RoutedEventArgs e) => await CaptureLensAsync();
+
+    private void OpenCaptureButton_Click(object sender, RoutedEventArgs e) => OpenSelectedCapture();
+
+    private void RenameCaptureButton_Click(object sender, RoutedEventArgs e) => RenameSelectedCapture();
+
+    private void DeleteCaptureButton_Click(object sender, RoutedEventArgs e) => DeleteSelectedCapture();
+
+    private void RefreshCapturesButton_Click(object sender, RoutedEventArgs e) => LoadCaptures();
+
+    private void CopyHtmlButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentInspection is null)
+        {
+            SetStatus("No active inspection.");
+            return;
+        }
+
+        System.Windows.Clipboard.SetText(_currentInspection.OuterHtml);
+        SetStatus("HTML copied.");
+    }
+
+    private void CopyCssButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentInspection is null)
+        {
+            SetStatus("No active inspection.");
+            return;
+        }
+
+        System.Windows.Clipboard.SetText(BuildComputedCss(_currentInspection));
+        SetStatus("Computed CSS copied.");
+    }
+
+    private void ExportJsonButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentInspection is null)
+        {
+            SetStatus("No active inspection.");
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export inspection",
+            Filter = "JSON (*.json)|*.json",
+            FileName = $"julco-{DateTime.Now:yyyyMMdd-HHmmss}.json"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(
+            _currentInspection,
+            new JsonSerializerOptions { WriteIndented = true });
+
+        File.WriteAllText(dialog.FileName, json);
+        SetStatus($"Exported: {dialog.FileName}");
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        await LoadSettingsAsync();
+        LoadCaptures();
+        var screens = Forms.Screen.AllScreens;
+        if (screens.Length <= 1)
+        {
+            EnableCompactMode();
+            return;
+        }
+
+        EnableMultiMonitorMode(screens);
+    }
+
+    private async Task LaunchBrowserAsync(BrowserKind browserKind)
+    {
+        try
+        {
+            SetBusy(true, $"Opening {browserKind} with CDP...");
+            var port = GetPort();
+            var process = browserKind switch
+            {
+                BrowserKind.Chrome => _browserLauncher.LaunchChrome(port, "https://example.com"),
+                BrowserKind.Edge => _browserLauncher.LaunchEdge(port, "https://example.com"),
+                BrowserKind.Opera => _browserLauncher.LaunchOpera(port, "https://example.com"),
+                _ => null
+            };
+
+            if (process is null)
+            {
+                SetStatus($"{browserKind} was not found.");
+                return;
+            }
+
+            await Task.Delay(1200);
+            _activeBrowser = browserKind;
+            await RefreshTargetsAsync();
+            SetStatus($"{browserKind} opened on CDP port {port}.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus(exception.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async Task RefreshTargetsAsync()
+    {
+        try
+        {
+            SetBusy(true, "Reading CDP tabs...");
+            var targets = await _endpointClient.GetPageTargetsAsync(GetPort(), CancellationToken.None);
+            TargetsComboBox.ItemsSource = targets;
+
+            if (targets.Count > 0)
+            {
+                TargetsComboBox.SelectedIndex = 0;
+                SetStatus($"{targets.Count} tab(s) detected.");
+            }
+            else
+            {
+                SetStatus("No inspectable web tabs found. Open an http/https page in the browser started by Julco.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Could not read CDP: {exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async Task InspectSelectedTargetAsync()
+    {
+        if (TargetsComboBox.SelectedItem is not CdpTarget target)
+        {
+            SetStatus("Select a tab first.");
+            return;
+        }
+
+        var selector = string.IsNullOrWhiteSpace(SelectorTextBox.Text)
+            ? "body"
+            : SelectorTextBox.Text.Trim();
+
+        try
+        {
+            SetBusy(true, $"Inspecting {selector}...");
+            var result = await _inspectionService.InspectAsync(target, selector, CancellationToken.None);
+            ShowInspection(target, result);
+            AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  {selector}");
+            SetStatus("Inspection completed.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Inspection failed: {exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private void ToggleLens()
+    {
+        if (_lensWindow is not null)
+        {
+            _lensWindow.Close();
+            return;
+        }
+
+        _lensWindow = new LensWindow
+        {
+            Owner = this
+        };
+        _lensWindow.LensChanged += LensWindow_LensChanged;
+        _lensWindow.InspectCenterRequested += LensWindow_InspectCenterRequested;
+        _lensWindow.Closed += LensWindow_Closed;
+        _lensWindow.Show();
+        PlaceLensNearMainWindow(_lensWindow);
+        LensButton.Content = "Close lens";
+        SetStatus("Lens active. Move or resize it; Julco will inspect the center automatically. Right-click the lens to close it.");
+        ScheduleAutoLensInspection();
+    }
+
+    private void LensWindow_LensChanged(object? sender, LensFrameChangedEventArgs e)
+    {
+        _lastLensState = e.State;
+        LensStateTextBlock.Text =
+            $"Center {e.State.CenterPoint.X:0},{e.State.CenterPoint.Y:0} | Frame {e.State.Bounds.Width:0}x{e.State.Bounds.Height:0}";
+        ScheduleAutoLensInspection();
+    }
+
+    private async void LensWindow_InspectCenterRequested(object? sender, LensFrameState state) => await InspectLensCenterAsync(state);
+
+    private void LensWindow_Closed(object? sender, EventArgs e)
+    {
+        if (_lensWindow is not null)
+        {
+            _lensWindow.LensChanged -= LensWindow_LensChanged;
+            _lensWindow.InspectCenterRequested -= LensWindow_InspectCenterRequested;
+            _lensWindow.Closed -= LensWindow_Closed;
+        }
+
+        _lensWindow = null;
+        LensButton.Content = "Lens";
+        LensStateTextBlock.Text = "Inactive";
+        _autoLensTimer.Stop();
+        SetStatus("Lens closed.");
+    }
+
+    private async Task InspectLensCenterAsync(LensFrameState state)
+    {
+        if (_isInspectingLens)
+        {
+            return;
+        }
+
+        if (TargetsComboBox.SelectedItem is not CdpTarget target)
+        {
+            SetStatus("Select a CDP tab before inspecting with the lens.");
+            return;
+        }
+
+        try
+        {
+            _isInspectingLens = true;
+            SetBusy(true, $"Inspecting center {state.CenterPoint.X:0},{state.CenterPoint.Y:0}...");
+            var result = await _inspectionService.InspectScreenPointAsync(
+                target,
+                state.CenterPoint.X,
+                state.CenterPoint.Y,
+                CancellationToken.None);
+
+            ShowInspection(target, result);
+            AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  lens center");
+            SetStatus("Lens inspection completed.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Lens: {exception.Message}");
+        }
+        finally
+        {
+            _isInspectingLens = false;
+            SetBusy(false);
+        }
+    }
+
+    private void ShowInspection(CdpTarget target, SelectorInspectionResult result)
+    {
+        _currentInspection = result;
+        ElementTextBlock.Text = $"{result.TagName}  |  {result.Selector}";
+        SelectorTextBox.Text = result.Selector;
+        UrlTextBlock.Text = target.Url;
+        DomTextBox.Text = DomFormatter.PrettyPrint(result.OuterHtml);
+        ComputedTextBox.Text = BuildComputedCss(result);
+        RulesTextBox.Text = string.Join(Environment.NewLine, result.MatchedCssRules);
+        ConsoleTextBox.Text = result.ConsoleMessages.Count == 0
+            ? "No messages captured during the connection."
+            : string.Join(Environment.NewLine, result.ConsoleMessages);
+        AttributesTextBox.Text = string.Join(
+            Environment.NewLine,
+            result.Attributes.Select(item => $"{item.Key}=\"{item.Value}\""));
+    }
+
+    private async Task CaptureLensAsync()
+    {
+        if (_lensWindow is null || _lastLensState is null)
+        {
+            SetStatus("Open the lens before creating a capture.");
+            return;
+        }
+
+        if (TargetsComboBox.SelectedItem is not CdpTarget target)
+        {
+            SetStatus("Select a CDP tab before creating a capture.");
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Creating capture package...");
+            var state = _lastLensState;
+            var inspection = await _inspectionService.InspectScreenPointAsync(
+                target,
+                state.CenterPoint.X,
+                state.CenterPoint.Y,
+                CancellationToken.None);
+
+            ShowInspection(target, inspection);
+
+            var captureRoot = GetCaptureRootDirectory();
+            Directory.CreateDirectory(captureRoot);
+
+            var folderName = BuildCaptureFolderName(target, inspection);
+            var captureDirectory = UniqueDirectory(Path.Combine(captureRoot, folderName));
+            Directory.CreateDirectory(captureDirectory);
+
+            var screenshotPath = Path.Combine(captureDirectory, "screenshot.png");
+            await CaptureRegionAsync(state, screenshotPath);
+
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "inspection.json"),
+                JsonSerializer.Serialize(inspection, jsonOptions));
+            File.WriteAllText(Path.Combine(captureDirectory, "dom.html"), inspection.OuterHtml);
+            File.WriteAllText(Path.Combine(captureDirectory, "computed.css"), BuildComputedCss(inspection));
+            File.WriteAllText(Path.Combine(captureDirectory, "console.txt"), string.Join(Environment.NewLine, inspection.ConsoleMessages));
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "attributes.txt"),
+                string.Join(Environment.NewLine, inspection.Attributes.Select(item => $"{item.Key}=\"{item.Value}\"")));
+
+            var manifest = new CaptureManifest(
+                DateTimeOffset.Now,
+                target.Title,
+                target.Url,
+                inspection.TagName,
+                inspection.Selector,
+                state.Bounds.X,
+                state.Bounds.Y,
+                state.Bounds.Width,
+                state.Bounds.Height,
+                "screenshot.png",
+                "inspection.json");
+
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "manifest.json"),
+                JsonSerializer.Serialize(manifest, jsonOptions));
+
+            LoadCaptures();
+            SelectCapture(captureDirectory);
+            SetStatus($"Capture saved: {captureDirectory}");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Capture failed: {exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async Task CaptureRegionAsync(LensFrameState state, string screenshotPath)
+    {
+        var wasVisible = _lensWindow?.IsVisible == true;
+        if (wasVisible)
+        {
+            _lensWindow!.Hide();
+            await Task.Delay(120);
+        }
+
+        try
+        {
+            var x = (int)Math.Round(state.Bounds.X);
+            var y = (int)Math.Round(state.Bounds.Y);
+            var width = Math.Max(1, (int)Math.Round(state.Bounds.Width));
+            var height = Math.Max(1, (int)Math.Round(state.Bounds.Height));
+
+            using var bitmap = new System.Drawing.Bitmap(width, height);
+            using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+            graphics.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(width, height));
+            bitmap.Save(screenshotPath, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        finally
+        {
+            if (wasVisible)
+            {
+                _lensWindow!.Show();
+            }
+        }
+    }
+
+    private void ScheduleAutoLensInspection()
+    {
+        if (_lensWindow is null || _lastLensState is null)
+        {
+            return;
+        }
+
+        _autoLensTimer.Stop();
+        _autoLensTimer.Start();
+    }
+
+    private async void AutoLensTimer_Tick(object? sender, EventArgs e)
+    {
+        _autoLensTimer.Stop();
+        if (_lastLensState is not null)
+        {
+            await InspectLensCenterAsync(_lastLensState);
+        }
+    }
+
+    private void ShowDomWindow()
+    {
+        if (_currentInspection is null || string.IsNullOrWhiteSpace(_currentInspection.OuterHtml))
+        {
+            SetStatus("No DOM to show.");
+            return;
+        }
+
+        ToggleResultWindow("DOM", () => new DomResultWindow(_currentInspection.OuterHtml));
+    }
+
+    private void ShowResultWindow(string title, string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            SetStatus($"No content for {title}.");
+            return;
+        }
+
+        ToggleResultWindow(title, () => new ResultWindow(title, content));
+    }
+
+    private void ToggleResultWindow(string kind, Func<Window> createWindow)
+    {
+        if (_activeResultWindow is not null)
+        {
+            if (_activeResultKind == kind)
+            {
+                _activeResultWindow.Close();
+                ClearActiveResultWindow();
+                return;
+            }
+
+            _activeResultWindow.Close();
+            ClearActiveResultWindow();
+        }
+
+        var window = createWindow();
+        _activeResultWindow = window;
+        _activeResultKind = kind;
+        window.Owner = this;
+        window.Topmost = _settings.Ui.KeepResultWindowsTopmost;
+        window.Closed += ActiveResultWindow_Closed;
+        PlaceResultWindow(window);
+        window.Show();
+    }
+
+    private void ActiveResultWindow_Closed(object? sender, EventArgs e)
+    {
+        if (ReferenceEquals(sender, _activeResultWindow))
+        {
+            ClearActiveResultWindow();
+        }
+    }
+
+    private void ClearActiveResultWindow()
+    {
+        if (_activeResultWindow is not null)
+        {
+            _activeResultWindow.Closed -= ActiveResultWindow_Closed;
+        }
+
+        _activeResultWindow = null;
+        _activeResultKind = null;
+    }
+
+    private void PlaceResultWindow(Window window)
+    {
+        if (_isCompactMode)
+        {
+            PlaceResultWindowForCompactMode(window);
+        }
+        else
+        {
+            PlaceResultWindowForMultiMonitor(window);
+        }
+    }
+
+    private void EnableCompactMode()
+    {
+        var area = SystemParameters.WorkArea;
+        _isCompactMode = true;
+        ResultsTabControl.Visibility = Visibility.Collapsed;
+        GapColumn.Width = new GridLength(0);
+        ResultsColumn.Width = new GridLength(0);
+        SideColumn.Width = new GridLength(1, GridUnitType.Star);
+        Width = 245;
+        MinWidth = 245;
+        Height = area.Height;
+        Top = area.Top;
+        Left = Math.Max(area.Left, area.Right - Width);
+        HeaderPanel.Margin = new Thickness(14, 8, 10, 8);
+        HeaderActionsPanel.Margin = new Thickness(10, 0, 0, 0);
+        LogoImage.Width = 54;
+        LogoImage.Height = 54;
+        WorkspaceGrid.Margin = new Thickness(8);
+        InspectorTitleTextBlock.Visibility = Visibility.Collapsed;
+        InspectorHelpTextBlock.Visibility = Visibility.Collapsed;
+        HistoryListBox.MaxHeight = double.PositiveInfinity;
+        SetStatus("Compact mode: use the vertical controls and result buttons.");
+    }
+
+    private void EnableMultiMonitorMode(IReadOnlyList<Forms.Screen> screens)
+    {
+        _isCompactMode = false;
+        ResultsTabControl.Visibility = Visibility.Visible;
+        GapColumn.Width = new GridLength(16);
+        ResultsColumn.Width = new GridLength(1, GridUnitType.Star);
+        SideColumn.Width = new GridLength(330);
+        InspectorTitleTextBlock.Visibility = Visibility.Visible;
+        InspectorHelpTextBlock.Visibility = Visibility.Visible;
+        HistoryListBox.MaxHeight = double.PositiveInfinity;
+        WorkspaceGrid.Margin = new Thickness(16);
+        HeaderPanel.Margin = new Thickness(14, 8, 14, 8);
+        HeaderActionsPanel.Margin = new Thickness(10, 0, 0, 0);
+        LogoImage.Width = 62;
+        LogoImage.Height = 62;
+
+        var targetScreen = screens.FirstOrDefault(screen => !screen.Primary) ?? screens[0];
+        var area = targetScreen.WorkingArea;
+        Width = Math.Min(1180, Math.Max(980, area.Width - 80));
+        Height = Math.Min(760, Math.Max(620, area.Height - 80));
+        Left = area.Left + Math.Max(20, (area.Width - Width) / 2);
+        Top = area.Top + Math.Max(20, (area.Height - Height) / 2);
+        SetStatus($"{screens.Count} monitors detected: wide mode enabled.");
+    }
+
+    private Forms.Screen GetCurrentScreen()
+    {
+        var centerX = (int)(Left + ActualWidth / 2);
+        var centerY = (int)(Top + ActualHeight / 2);
+        return Forms.Screen.FromPoint(new System.Drawing.Point(centerX, centerY));
+    }
+
+    private void PlaceLensNearMainWindow(LensWindow lensWindow)
+    {
+        var area = GetCurrentScreen().WorkingArea;
+        lensWindow.Left = area.Left + Math.Min(120, Math.Max(20, area.Width * 0.08));
+        lensWindow.Top = area.Top + Math.Min(120, Math.Max(20, area.Height * 0.08));
+    }
+
+    private void PlaceResultWindowForCompactMode(Window window)
+    {
+        var area = GetCurrentScreen().WorkingArea;
+        window.Width = Math.Min(820, Math.Max(420, area.Width - Width - 56));
+        window.Height = Math.Min(680, area.Height - 80);
+
+        var leftSide = Left - window.Width - 12;
+        var rightSide = Left + Width + 12;
+        window.Left = leftSide >= area.Left
+            ? leftSide
+            : Math.Min(rightSide, area.Right - window.Width - 12);
+        window.Top = Math.Clamp(Top, area.Top + 12, area.Bottom - window.Height - 12);
+    }
+
+    private void PlaceResultWindowForMultiMonitor(Window window)
+    {
+        var screens = Forms.Screen.AllScreens;
+        var mainScreen = GetCurrentScreen();
+        var targetScreen = screens.FirstOrDefault(screen => screen.DeviceName != mainScreen.DeviceName)
+            ?? mainScreen;
+        var area = targetScreen.WorkingArea;
+        window.Width = Math.Min(900, area.Width - 80);
+        window.Height = Math.Min(680, area.Height - 80);
+        window.Left = area.Left + Math.Max(20, (area.Width - window.Width) / 2);
+        window.Top = area.Top + Math.Max(20, (area.Height - window.Height) / 2);
+    }
+
+    private int GetPort()
+    {
+        if (int.TryParse(PortTextBox.Text, out var port) && port > 0)
+        {
+            return port;
+        }
+
+        PortTextBox.Text = "9222";
+        return 9222;
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        try
+        {
+            _settings = NormalizeSettings(await _settingsStore.LoadAsync(CancellationToken.None));
+        }
+        catch (Exception exception)
+        {
+            _settings = AppSettings.Default;
+            SetStatus($"Settings could not be loaded: {exception.Message}");
+        }
+
+        ApplySettingsToUi();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        await _settingsStore.SaveAsync(_settings, CancellationToken.None);
+    }
+
+    private static AppSettings NormalizeSettings(AppSettings settings)
+    {
+        return settings with
+        {
+            Language = string.IsNullOrWhiteSpace(settings.Language)
+                ? AppSettings.Default.Language
+                : settings.Language,
+            Capture = settings.Capture ?? CaptureSettings.Default,
+            Export = settings.Export ?? ExportSettings.Default,
+            History = settings.History ?? HistorySettings.Default,
+            Ui = settings.Ui ?? UiSettings.Default
+        };
+    }
+
+    private void ApplySettingsToUi()
+    {
+        PortTextBox.Text = _settings.Ui.CdpPort.ToString();
+        _autoLensTimer.Interval = TimeSpan.FromMilliseconds(_settings.Ui.LensInspectionDelayMs);
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        var window = new SettingsWindow(_settings, GetCaptureRootDirectory())
+        {
+            Owner = this
+        };
+
+        if (window.ShowDialog() != true)
+        {
+            return;
+        }
+
+        _settings = window.Settings;
+        ApplySettingsToUi();
+        await SaveSettingsAsync();
+        LoadCaptures();
+        SetStatus("Settings saved.");
+    }
+
+    private static string BuildComputedCss(SelectorInspectionResult inspection)
+    {
+        return string.Join(
+            Environment.NewLine,
+            inspection.ComputedStyle
+                .OrderBy(item => item.Key)
+                .Select(item => $"{item.Key}: {item.Value};"));
+    }
+
+    private void AddHistory(string entry)
+    {
+        _history.Insert(0, entry);
+        if (_history.Count > _settings.History.MaxEntries)
+        {
+            _history.RemoveAt(_history.Count - 1);
+        }
+
+        HistoryListBox.ItemsSource = null;
+        HistoryListBox.ItemsSource = _history;
+    }
+
+    private void LoadCaptures()
+    {
+        _captureFiles.Clear();
+        var root = GetCaptureRootDirectory();
+        Directory.CreateDirectory(root);
+
+        foreach (var directory in Directory.EnumerateDirectories(root).OrderByDescending(Directory.GetCreationTimeUtc))
+        {
+            _captureFiles.Add(CaptureFileRecord.FromDirectory(directory));
+        }
+
+        CaptureFilesListBox.ItemsSource = null;
+        CaptureFilesListBox.ItemsSource = _captureFiles;
+    }
+
+    private void SelectCapture(string directory)
+    {
+        CaptureFilesListBox.SelectedItem = _captureFiles.FirstOrDefault(item =>
+            string.Equals(item.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void OpenSelectedCapture()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture first.");
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = capture.DirectoryPath,
+            UseShellExecute = true
+        });
+    }
+
+    private void RenameSelectedCapture()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture first.");
+            return;
+        }
+
+        var currentName = Path.GetFileName(capture.DirectoryPath);
+        var requestedName = Microsoft.VisualBasic.Interaction.InputBox(
+            "Capture folder name:",
+            "Rename capture",
+            currentName);
+
+        if (string.IsNullOrWhiteSpace(requestedName))
+        {
+            return;
+        }
+
+        var safeName = SanitizeFileName(requestedName);
+        var parent = Directory.GetParent(capture.DirectoryPath)?.FullName;
+        if (string.IsNullOrWhiteSpace(parent))
+        {
+            return;
+        }
+
+        var destination = Path.Combine(parent, safeName);
+        if (Directory.Exists(destination))
+        {
+            SetStatus("A capture with that name already exists.");
+            return;
+        }
+
+        Directory.Move(capture.DirectoryPath, destination);
+        LoadCaptures();
+        SelectCapture(destination);
+        SetStatus("Capture renamed.");
+    }
+
+    private void DeleteSelectedCapture()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture first.");
+            return;
+        }
+
+        var result = System.Windows.MessageBox.Show(
+            this,
+            $"Delete capture '{capture.DisplayName}'?",
+            "Delete capture",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        Directory.Delete(capture.DirectoryPath, recursive: true);
+        LoadCaptures();
+        SetStatus("Capture deleted.");
+    }
+
+    private void SetBusy(bool isBusy, string? message = null)
+    {
+        LaunchChromeButton.IsEnabled = !isBusy;
+        LaunchEdgeButton.IsEnabled = !isBusy;
+        LaunchOperaButton.IsEnabled = !isBusy;
+        LaunchFirefoxButton.IsEnabled = !isBusy;
+        RefreshTargetsButton.IsEnabled = !isBusy;
+        LensButton.IsEnabled = !isBusy;
+        SettingsButton.IsEnabled = !isBusy;
+        InspectButton.IsEnabled = !isBusy;
+        CaptureLensButton.IsEnabled = !isBusy;
+        OpenCaptureButton.IsEnabled = !isBusy;
+        RenameCaptureButton.IsEnabled = !isBusy;
+        DeleteCaptureButton.IsEnabled = !isBusy;
+        RefreshCapturesButton.IsEnabled = !isBusy;
+        CopyHtmlButton.IsEnabled = !isBusy;
+        CopyCssButton.IsEnabled = !isBusy;
+        ExportJsonButton.IsEnabled = !isBusy;
+
+        if (message is not null)
+        {
+            SetStatus(message);
+        }
+    }
+
+    private void SetStatus(string message)
+    {
+        StatusTextBlock.Text = message;
+    }
+
+    private string GetCaptureRootDirectory()
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.Capture.ScreenshotDirectory))
+        {
+            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(_settings.Capture.ScreenshotDirectory));
+        }
+
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Julco", "Captures");
+    }
+
+    private string BuildCaptureFolderName(CdpTarget target, SelectorInspectionResult inspection)
+    {
+        var value = _settings.Capture.FileNamePattern;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            value = CaptureSettings.Default.FileNamePattern;
+        }
+
+        value = value
+            .Replace("{date}", DateTime.Now.ToString("yyyyMMdd"), StringComparison.OrdinalIgnoreCase)
+            .Replace("{time}", DateTime.Now.ToString("HHmmss"), StringComparison.OrdinalIgnoreCase)
+            .Replace("{browser}", _activeBrowser?.ToString() ?? "browser", StringComparison.OrdinalIgnoreCase)
+            .Replace("{tag}", inspection.TagName.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase)
+            .Replace("{selector}", inspection.Selector, StringComparison.OrdinalIgnoreCase)
+            .Replace("{title}", target.Title, StringComparison.OrdinalIgnoreCase);
+
+        return SanitizeFileName(value);
+    }
+
+    private static string UniqueDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return path;
+        }
+
+        for (var index = 2; ; index++)
+        {
+            var candidate = $"{path}-{index}";
+            if (!Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(value.Select(character =>
+            invalid.Contains(character) ? '-' : character).ToArray());
+
+        sanitized = sanitized.Trim('.', ' ', '-');
+        return string.IsNullOrWhiteSpace(sanitized)
+            ? $"capture-{DateTime.Now:yyyyMMdd-HHmmss}"
+            : sanitized;
+    }
+
+    private static string GetSettingsPath()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Julco",
+            "settings.json");
+    }
+
+    private enum BrowserKind
+    {
+        Chrome,
+        Edge,
+        Opera,
+        Firefox
+    }
+
+    private sealed record CaptureManifest(
+        DateTimeOffset CreatedAt,
+        string PageTitle,
+        string Url,
+        string TagName,
+        string Selector,
+        double X,
+        double Y,
+        double Width,
+        double Height,
+        string Screenshot,
+        string Inspection);
+
+    private sealed record CaptureFileRecord(
+        string DirectoryPath,
+        string DisplayName,
+        DateTimeOffset CreatedAt)
+    {
+        public static CaptureFileRecord FromDirectory(string directoryPath)
+        {
+            var manifestPath = Path.Combine(directoryPath, "manifest.json");
+            if (File.Exists(manifestPath))
+            {
+                try
+                {
+                    var manifest = JsonSerializer.Deserialize<CaptureManifest>(File.ReadAllText(manifestPath));
+                    if (manifest is not null)
+                    {
+                        return new CaptureFileRecord(
+                            directoryPath,
+                            $"{manifest.CreatedAt:MM-dd HH:mm}  {manifest.TagName}  {manifest.Selector}",
+                            manifest.CreatedAt);
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+            }
+
+            return new CaptureFileRecord(
+                directoryPath,
+                Path.GetFileName(directoryPath),
+                Directory.GetCreationTime(directoryPath));
+        }
+    }
+}
