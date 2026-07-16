@@ -5,28 +5,41 @@
         Width="430"
         Height="360"
         MinWidth="390"
-        MinHeight="330"
+        MinHeight="370"
         WindowStartupLocation="CenterOwner"
         Background="#101217"
         Foreground="#F4F6F8"
         ResizeMode="CanResize">
     <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#101217" />
+        <SolidColorBrush x:Key="PrimaryText" Color="#F4F6F8" />
+        <SolidColorBrush x:Key="InputBackground" Color="#0F1218" />
+        <SolidColorBrush x:Key="ControlBackground" Color="#202630" />
         <SolidColorBrush x:Key="MutedText" Color="#AAB2C0" />
         <SolidColorBrush x:Key="BorderColor" Color="#2A2F3A" />
         <Style TargetType="Button">
             <Setter Property="MinHeight" Value="30" />
             <Setter Property="Padding" Value="12,4" />
-            <Setter Property="Background" Value="#202630" />
-            <Setter Property="BorderBrush" Value="#3A4656" />
-            <Setter Property="Foreground" Value="#F4F6F8" />
+            <Setter Property="Background" Value="{StaticResource ControlBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
         </Style>
         <Style TargetType="TextBox">
             <Setter Property="MinHeight" Value="30" />
             <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Background" Value="#0F1218" />
-            <Setter Property="BorderBrush" Value="#3A4656" />
-            <Setter Property="Foreground" Value="#F4F6F8" />
-            <Setter Property="CaretBrush" Value="#F4F6F8" />
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
+            <Setter Property="CaretBrush" Value="{StaticResource PrimaryText}" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
         </Style>
     </Window.Resources>
 
@@ -46,6 +59,7 @@
 
         <Grid Grid.Row="1">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -75,8 +89,15 @@
             <TextBlock Grid.Row="4" Grid.Column="0" Text="Lens delay ms" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" Margin="0,12,0,0" />
             <TextBox x:Name="LensDelayTextBox" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,12,0,0" />
 
-            <CheckBox x:Name="TopmostCheckBox"
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Theme" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" Margin="0,12,0,0" />
+            <ComboBox x:Name="ThemeComboBox"
                       Grid.Row="5"
+                      Grid.Column="1"
+                      Grid.ColumnSpan="2"
+                      Margin="0,12,0,0" />
+
+            <CheckBox x:Name="TopmostCheckBox"
+                      Grid.Row="6"
                       Grid.Column="1"
                       Grid.ColumnSpan="2"
                       Content="Keep result windows on top"

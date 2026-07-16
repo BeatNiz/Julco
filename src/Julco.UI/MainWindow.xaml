@@ -7,6 +7,7 @@
         Height="760"
         MinWidth="260"
         MinHeight="520"
+        WindowStyle="None"
         Background="#101217"
         Foreground="#F4F6F8">
     <Window.Resources>
@@ -16,14 +17,17 @@
         <SolidColorBrush x:Key="ControlBackground" Color="#202630" />
         <SolidColorBrush x:Key="ControlHover" Color="#2A3340" />
         <SolidColorBrush x:Key="ControlPressed" Color="#334155" />
+        <SolidColorBrush x:Key="InputBackground" Color="#0F1218" />
+        <SolidColorBrush x:Key="PrimaryText" Color="#F4F6F8" />
+        <SolidColorBrush x:Key="ListBackground" Color="#111318" />
         <SolidColorBrush x:Key="Accent" Color="#40C7FF" />
         <Style TargetType="Button">
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Padding" Value="12,6" />
             <Setter Property="Background" Value="{StaticResource ControlBackground}" />
-            <Setter Property="BorderBrush" Value="#3A4656" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Foreground" Value="#F4F6F8" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -65,19 +69,23 @@
         <Style TargetType="TextBox">
             <Setter Property="MinHeight" Value="30" />
             <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Background" Value="#0F1218" />
-            <Setter Property="BorderBrush" Value="#3A4656" />
-            <Setter Property="Foreground" Value="#F4F6F8" />
-            <Setter Property="CaretBrush" Value="#F4F6F8" />
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
+            <Setter Property="CaretBrush" Value="{StaticResource PrimaryText}" />
             <Setter Property="SelectionBrush" Value="#40C7FF" />
         </Style>
         <Style x:Key="BrowserLogoButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Width" Value="38" />
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="FontFamily" Value="Segoe UI Symbol" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style x:Key="WindowChromeButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="FontSize" Value="13" />
         </Style>
     </Window.Resources>
 
@@ -93,7 +101,36 @@
                 Background="#181B22"
                 BorderBrush="#2A2F3A"
                 BorderThickness="0,0,0,1">
-            <DockPanel x:Name="HeaderPanel" Margin="14,8">
+            <DockPanel x:Name="HeaderPanel"
+                       Margin="14,8"
+                       LastChildFill="False"
+                       MouseLeftButtonDown="HeaderPanel_MouseLeftButtonDown">
+                <StackPanel x:Name="TitleBarControlsPanel"
+                            DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Top">
+                    <Button x:Name="HelpButton"
+                            Content="?"
+                            Style="{StaticResource WindowChromeButton}"
+                            ToolTip="Open Julco help and recommended browser ports."
+                            Click="HelpButton_Click" />
+                    <Button x:Name="MinimizeButton"
+                            Content="─"
+                            Style="{StaticResource WindowChromeButton}"
+                            ToolTip="Minimize"
+                            Click="MinimizeButton_Click" />
+                    <Button x:Name="MaximizeButton"
+                            Content="□"
+                            Style="{StaticResource WindowChromeButton}"
+                            ToolTip="Maximize or restore"
+                            Click="MaximizeButton_Click" />
+                    <Button x:Name="CloseButton"
+                            Content="×"
+                            Style="{StaticResource WindowChromeButton}"
+                            ToolTip="Close"
+                            Click="CloseButton_Click" />
+                </StackPanel>
+
                 <Image x:Name="LogoImage"
                        Source="/Julco.UI;component/Resources/julco-logo-dark.png"
                        Width="62"
@@ -116,54 +153,77 @@
                              Width="72"
                              Text="9222"
                              ToolTip="Local port used to connect through Chrome DevTools Protocol."
-                             Margin="0,0,10,0" />
+                             Margin="0,0,8,0" />
+                    <Button x:Name="SettingsButton"
+                            Style="{StaticResource BrowserLogoButton}"
+                            ToolTip="Open Julco settings."
+                            Click="SettingsButton_Click"
+                            Margin="0,0,10,0">
+                        <Image x:Name="SettingsIconImage"
+                               Source="/Julco.UI;component/Resources/settings.png"
+                               Width="18"
+                               Height="18"
+                               Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="LaunchChromeButton"
-                            Content="◉"
-                            Foreground="#4EA1FF"
                             Style="{StaticResource BrowserLogoButton}"
                             ToolTip="Open Chrome with the configured CDP port."
                             Click="LaunchChromeButton_Click"
-                            Margin="0,0,8,0" />
+                            Margin="0,0,8,0">
+                        <Image Source="/Julco.UI;component/Resources/Chrome.png"
+                               Width="21"
+                               Height="21"
+                               Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="LaunchEdgeButton"
-                            Content="e"
-                            Foreground="#38BDF8"
                             Style="{StaticResource BrowserLogoButton}"
                             ToolTip="Open Microsoft Edge with the configured CDP port."
                             Click="LaunchEdgeButton_Click"
-                            Margin="0,0,8,0" />
+                            Margin="0,0,8,0">
+                        <Image Source="/Julco.UI;component/Resources/Edge.png"
+                               Width="21"
+                               Height="21"
+                               Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="LaunchOperaButton"
-                            Content="O"
-                            Foreground="#FF1B2D"
                             Style="{StaticResource BrowserLogoButton}"
                             ToolTip="Open Opera with the configured CDP port."
                             Click="LaunchOperaButton_Click"
-                            Margin="0,0,8,0" />
+                            Margin="0,0,8,0">
+                        <Image Source="/Julco.UI;component/Resources/Opera.png"
+                               Width="21"
+                               Height="21"
+                               Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="LaunchFirefoxButton"
-                            Content="F"
-                            Foreground="#FF7A18"
                             Style="{StaticResource BrowserLogoButton}"
                             ToolTip="Open Firefox with WebDriver BiDi on the configured port."
                             Click="LaunchFirefoxButton_Click"
-                            Margin="0,0,8,0" />
+                            Margin="0,0,8,0">
+                        <Image Source="/Julco.UI;component/Resources/Firefox.png"
+                               Width="21"
+                               Height="21"
+                               Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="RefreshTargetsButton"
                             Content="Tabs"
                             ToolTip="Refresh the list of inspectable web pages."
                             Click="RefreshTargetsButton_Click"
                             Margin="0,0,8,0" />
                     <Button x:Name="LensButton"
-                            Content="Lens"
                             ToolTip="Open or close the technical lens frame."
                             Click="LensButton_Click"
-                            Margin="0,0,8,0" />
-                    <Button x:Name="HelpButton"
-                            Content="?"
-                            ToolTip="Open Julco help and recommended browser ports."
-                            Click="HelpButton_Click"
-                            Margin="0,0,8,0" />
-                    <Button x:Name="SettingsButton"
-                            Content="⚙"
-                            ToolTip="Open Julco settings."
-                            Click="SettingsButton_Click" />
+                            Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Image x:Name="LensIconImage"
+                                   Source="/Julco.UI;component/Resources/Lens.png"
+                                   Width="16"
+                                   Height="16"
+                                   Stretch="Uniform"
+                                   Margin="0,0,6,0" />
+                            <TextBlock x:Name="LensButtonTextBlock" Text="Lens" />
+                        </StackPanel>
+                    </Button>
                 </WrapPanel>
             </DockPanel>
         </Border>
@@ -256,8 +316,8 @@
                         <ListBox x:Name="HistoryListBox"
                                  Grid.Row="0"
                                  MinHeight="120"
-                                 Background="#111318"
-                                 Foreground="#F4F6F8"
+                                 Background="{StaticResource ListBackground}"
+                                 Foreground="{StaticResource PrimaryText}"
                                  BorderBrush="{StaticResource BorderColor}" />
 
                         <TextBlock Grid.Row="1"
@@ -270,8 +330,8 @@
                                  Grid.Row="2"
                                  DisplayMemberPath="DisplayName"
                                  MinHeight="160"
-                                 Background="#111318"
-                                 Foreground="#F4F6F8"
+                                 Background="{StaticResource ListBackground}"
+                                 Foreground="{StaticResource PrimaryText}"
                                  BorderBrush="{StaticResource BorderColor}" />
                     </Grid>
 
@@ -348,17 +408,17 @@
 
             <TabControl x:Name="ResultsTabControl"
                         Grid.Column="2"
-                        Background="#101217"
-                        Foreground="#F4F6F8">
+                        Background="{StaticResource PanelBackground}"
+                        Foreground="{StaticResource PrimaryText}">
                 <TabItem Header="DOM">
                     <TextBox x:Name="DomTextBox"
                              IsReadOnly="True"
                              AcceptsReturn="True"
                              AcceptsTab="True"
                              TextWrapping="NoWrap"
-                             Background="#050608"
-                             Foreground="#D4D4D4"
-                             BorderBrush="#2A2F3A"
+                             Background="{StaticResource InputBackground}"
+                             Foreground="{StaticResource PrimaryText}"
+                             BorderBrush="{StaticResource BorderColor}"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Auto"
                              FontFamily="Consolas" />
@@ -398,9 +458,10 @@
             </TabControl>
         </Grid>
 
-        <Border Grid.Row="2"
-                Background="#181B22"
-                BorderBrush="#2A2F3A"
+        <Border x:Name="StatusBorder"
+                Grid.Row="2"
+                Background="{StaticResource PanelBackground}"
+                BorderBrush="{StaticResource BorderColor}"
                 BorderThickness="0,1,0,0">
             <TextBlock x:Name="StatusTextBlock"
                        Text="Ready"

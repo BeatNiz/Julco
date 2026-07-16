@@ -2,6 +2,10 @@ using System.IO;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Julco.Configuration;
 using Julco.Capture;
@@ -43,9 +47,46 @@ public partial class MainWindow : Window
         };
         _autoLensTimer.Tick += AutoLensTimer_Tick;
         Loaded += MainWindow_Loaded;
+        StateChanged += MainWindow_StateChanged;
     }
 
     private async void LaunchChromeButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Chrome);
+
+    private void HeaderPanel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (IsInsideButton(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            ToggleWindowState();
+            return;
+        }
+
+        DragMove();
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleWindowState();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void MainWindow_StateChanged(object? sender, EventArgs e)
+    {
+        MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+    }
 
     private async void LaunchEdgeButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Edge);
 
@@ -265,7 +306,7 @@ public partial class MainWindow : Window
         _lensWindow.Closed += LensWindow_Closed;
         _lensWindow.Show();
         PlaceLensNearMainWindow(_lensWindow);
-        LensButton.Content = "Close lens";
+        LensButtonTextBlock.Text = "Close";
         SetStatus("Lens active. Move or resize it; Julco will inspect the center automatically. Right-click the lens to close it.");
         ScheduleAutoLensInspection();
     }
@@ -298,7 +339,7 @@ public partial class MainWindow : Window
 
         _lensWindow = null;
         _lastLiveLensHistoryKey = null;
-        LensButton.Content = "Lens";
+        LensButtonTextBlock.Text = "Lens";
         LensStateTextBlock.Text = "Inactive";
         _autoLensTimer.Stop();
         SetStatus("Lens closed.");
@@ -779,6 +820,161 @@ public partial class MainWindow : Window
     {
         PortTextBox.Text = _settings.Ui.CdpPort.ToString();
         _autoLensTimer.Interval = TimeSpan.FromMilliseconds(_settings.Ui.LensInspectionDelayMs);
+        ApplyTheme();
+    }
+
+    private void ApplyTheme()
+    {
+        var light = ResolveThemeIsLight();
+        var windowBackground = Brush(light ? "#F4F7FB" : "#101217");
+        var panelBackground = Brush(light ? "#FFFFFF" : "#181B22");
+        var subtlePanelBackground = Brush(light ? "#F8FAFC" : "#111318");
+        var borderColor = Brush(light ? "#CFD8E3" : "#2A2F3A");
+        var mutedText = Brush(light ? "#526173" : "#AAB2C0");
+        var controlBackground = Brush(light ? "#EEF3F8" : "#202630");
+        var controlHover = Brush(light ? "#E2EAF3" : "#2A3340");
+        var controlPressed = Brush(light ? "#D4DEEA" : "#334155");
+        var foreground = Brush(light ? "#121826" : "#F4F6F8");
+        var inputBackground = Brush(light ? "#FFFFFF" : "#0F1218");
+        var listBackground = Brush(light ? "#FFFFFF" : "#111318");
+        var tabBackground = Brush(light ? "#F8FAFC" : "#101217");
+
+        SetBrushResource("PanelBackground", panelBackground);
+        SetBrushResource("BorderColor", borderColor);
+        SetBrushResource("MutedText", mutedText);
+        SetBrushResource("ControlBackground", controlBackground);
+        SetBrushResource("ControlHover", controlHover);
+        SetBrushResource("ControlPressed", controlPressed);
+        SetBrushResource("InputBackground", inputBackground);
+        SetBrushResource("PrimaryText", foreground);
+        SetBrushResource("ListBackground", listBackground);
+
+        Background = windowBackground;
+        Foreground = foreground;
+        HeaderBorder.Background = panelBackground;
+        HeaderBorder.BorderBrush = borderColor;
+        StatusBorder.Background = panelBackground;
+        StatusBorder.BorderBrush = borderColor;
+        ResultsTabControl.Background = tabBackground;
+        ResultsTabControl.Foreground = foreground;
+        StatusTextBlock.Foreground = mutedText;
+        LogoImage.Source = Bitmap(light
+            ? "/Julco.UI;component/Resources/julco-logo.png"
+            : "/Julco.UI;component/Resources/julco-logo-dark.png");
+        SettingsIconImage.Source = Bitmap(light
+            ? "/Julco.UI;component/Resources/settings-dark.png"
+            : "/Julco.UI;component/Resources/settings.png");
+        LensIconImage.Source = Bitmap(light
+            ? "/Julco.UI;component/Resources/Lens-dark.png"
+            : "/Julco.UI;component/Resources/Lens.png");
+
+        ApplyThemeToChildren(this, foreground, mutedText, inputBackground, listBackground, subtlePanelBackground, borderColor);
+    }
+
+    private static void ApplyThemeToChildren(
+        DependencyObject parent,
+        System.Windows.Media.Brush foreground,
+        System.Windows.Media.Brush mutedText,
+        System.Windows.Media.Brush inputBackground,
+        System.Windows.Media.Brush listBackground,
+        System.Windows.Media.Brush panelBackground,
+        System.Windows.Media.Brush borderColor)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            switch (child)
+            {
+                case System.Windows.Controls.TextBox textBox:
+                    textBox.Foreground = foreground;
+                    textBox.CaretBrush = foreground;
+                    textBox.Background = inputBackground;
+                    textBox.BorderBrush = borderColor;
+                    break;
+                case TextBlock textBlock when textBlock.Foreground == System.Windows.SystemColors.ControlTextBrush:
+                    textBlock.Foreground = foreground;
+                    break;
+                case System.Windows.Controls.ComboBox comboBox:
+                    comboBox.Foreground = foreground;
+                    comboBox.Background = inputBackground;
+                    comboBox.BorderBrush = borderColor;
+                    break;
+                case System.Windows.Controls.ListBox listBox:
+                    listBox.Foreground = foreground;
+                    listBox.Background = listBackground;
+                    listBox.BorderBrush = borderColor;
+                    break;
+                case Border border when border.BorderBrush is not null:
+                    border.BorderBrush = borderColor;
+                    break;
+                case System.Windows.Controls.TabControl tabControl:
+                    tabControl.Foreground = foreground;
+                    tabControl.Background = panelBackground;
+                    break;
+            }
+
+            ApplyThemeToChildren(child, foreground, mutedText, inputBackground, listBackground, panelBackground, borderColor);
+        }
+    }
+
+    private bool ResolveThemeIsLight()
+    {
+        if (_settings.Theme == ThemeMode.Light)
+        {
+            return true;
+        }
+
+        if (_settings.Theme == ThemeMode.Dark)
+        {
+            return false;
+        }
+
+        return SystemParameters.WindowGlassColor.R
+            + SystemParameters.WindowGlassColor.G
+            + SystemParameters.WindowGlassColor.B > 382;
+    }
+
+    private void SetBrushResource(string key, SolidColorBrush brush)
+    {
+        if (Resources[key] is SolidColorBrush existing)
+        {
+            existing.Color = brush.Color;
+            return;
+        }
+
+        Resources[key] = brush;
+    }
+
+    private static SolidColorBrush Brush(string color)
+    {
+        return (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
+    }
+
+    private static BitmapImage Bitmap(string uri)
+    {
+        return new BitmapImage(new Uri(uri, UriKind.RelativeOrAbsolute));
+    }
+
+    private static bool IsInsideButton(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is System.Windows.Controls.Button)
+            {
+                return true;
+            }
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
+    }
+
+    private void ToggleWindowState()
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
     }
 
     private async Task OpenSettingsAsync()

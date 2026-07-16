@@ -12,6 +12,14 @@
     <Resource Include="Resources\julco.ico" />
     <Resource Include="Resources\julco-logo-dark.png" />
     <Resource Include="Resources\julco-logo.png" />
+    <Resource Include="Resources\Chrome.png" />
+    <Resource Include="Resources\Edge.png" />
+    <Resource Include="Resources\Firefox.png" />
+    <Resource Include="Resources\Opera.png" />
+    <Resource Include="Resources\Lens.png" />
+    <Resource Include="Resources\Lens-dark.png" />
+    <Resource Include="Resources\settings.png" />
+    <Resource Include="Resources\settings-dark.png" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Julco.Browser\Julco.Browser.csproj" />

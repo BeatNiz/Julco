@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using Julco.Core.Configuration;
 using Forms = System.Windows.Forms;
 
@@ -17,7 +18,10 @@ public partial class SettingsWindow : Window
         FilePatternTextBox.Text = settings.Capture.FileNamePattern;
         HistoryMaxTextBox.Text = settings.History.MaxEntries.ToString();
         LensDelayTextBox.Text = settings.Ui.LensInspectionDelayMs.ToString();
+        ThemeComboBox.ItemsSource = Enum.GetValues<ThemeMode>();
+        ThemeComboBox.SelectedItem = settings.Theme;
         TopmostCheckBox.IsChecked = settings.Ui.KeepResultWindowsTopmost;
+        ApplyTheme(settings.Theme);
     }
 
     public AppSettings Settings { get; private set; }
@@ -72,6 +76,9 @@ public partial class SettingsWindow : Window
 
         Settings = Settings with
         {
+            Theme = ThemeComboBox.SelectedItem is ThemeMode theme
+                ? theme
+                : ThemeMode.Dark,
             Capture = Settings.Capture with
             {
                 ScreenshotDirectory = captureDirectory,
@@ -102,5 +109,32 @@ public partial class SettingsWindow : Window
     private void ShowValidation(string message)
     {
         System.Windows.MessageBox.Show(this, message, "Invalid settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private void ApplyTheme(ThemeMode theme)
+    {
+        var light = theme == ThemeMode.Light
+            || theme == ThemeMode.System
+            && SystemParameters.WindowGlassColor.R
+            + SystemParameters.WindowGlassColor.G
+            + SystemParameters.WindowGlassColor.B > 382;
+
+        SetBrush("PanelBackground", light ? "#F4F7FB" : "#101217");
+        SetBrush("PrimaryText", light ? "#121826" : "#F4F6F8");
+        SetBrush("InputBackground", light ? "#FFFFFF" : "#0F1218");
+        SetBrush("ControlBackground", light ? "#EEF3F8" : "#202630");
+        SetBrush("MutedText", light ? "#526173" : "#AAB2C0");
+        SetBrush("BorderColor", light ? "#CFD8E3" : "#2A2F3A");
+
+        Background = (System.Windows.Media.Brush)Resources["PanelBackground"];
+        Foreground = (System.Windows.Media.Brush)Resources["PrimaryText"];
+    }
+
+    private void SetBrush(string key, string color)
+    {
+        if (Resources[key] is SolidColorBrush brush)
+        {
+            brush.Color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color);
+        }
     }
 }
