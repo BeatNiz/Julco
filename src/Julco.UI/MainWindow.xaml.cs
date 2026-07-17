@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private ImageResourcesWindow? _imageResourcesWindow;
     private string? _activeResultKind;
     private BrowserKind? _activeBrowser;
+    private WebImageResource? _lastLensPreviewImage;
     private bool _isInspectingLens;
     private bool _isCompactMode;
     private string? _lastLiveLensHistoryKey;
@@ -85,7 +86,7 @@ public partial class MainWindow : Window
 
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
-        MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+        MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
     }
 
     private async void LaunchEdgeButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Edge);
@@ -112,7 +113,7 @@ public partial class MainWindow : Window
 
     private void ShowAttributesButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Attributes", AttributesTextBox.Text);
 
-    private void ShowImagesButton_Click(object sender, RoutedEventArgs e) => ShowImagesWindow();
+    private async void ShowImagesButton_Click(object sender, RoutedEventArgs e) => await ShowImagesWindowAsync();
 
     private async void CaptureLensButton_Click(object sender, RoutedEventArgs e) => await CaptureLensAsync();
 
@@ -314,6 +315,7 @@ public partial class MainWindow : Window
     private void LensWindow_LensChanged(object? sender, LensFrameChangedEventArgs e)
     {
         _lastLensState = e.State;
+        _lastLensPreviewImage = null;
         LensStateTextBlock.Text =
             $"Center {e.State.CenterPoint.X:0},{e.State.CenterPoint.Y:0} | Frame {e.State.Bounds.Width:0}x{e.State.Bounds.Height:0}";
         ScheduleAutoLensInspection();
@@ -364,8 +366,7 @@ public partial class MainWindow : Window
             SetStatus($"Inspecting center {state.CenterPoint.X:0},{state.CenterPoint.Y:0}...");
             var result = await InspectScreenPointAsync(
                 target,
-                state.CenterPoint.X,
-                state.CenterPoint.Y,
+                state,
                 CancellationToken.None);
 
             ShowInspection(target, result);
@@ -403,7 +404,7 @@ public partial class MainWindow : Window
         AttributesTextBox.Text = string.Join(
             Environment.NewLine,
             result.Attributes.Select(item => $"{item.Key}=\"{item.Value}\""));
-        _imageResourcesWindow?.SetImages(result.Images);
+        _imageResourcesWindow?.SetImages(BuildImagesWithLensPreview(result.Images));
     }
 
     private Task<SelectorInspectionResult> InspectSelectorAsync(
@@ -418,13 +419,28 @@ public partial class MainWindow : Window
 
     private Task<SelectorInspectionResult> InspectScreenPointAsync(
         CdpTarget target,
-        double screenX,
-        double screenY,
+        LensFrameState state,
         CancellationToken cancellationToken)
     {
         return IsFirefoxTarget(target)
-            ? _firefoxInspectionService.InspectScreenPointAsync(target, screenX, screenY, cancellationToken)
-            : _inspectionService.InspectScreenPointAsync(target, screenX, screenY, cancellationToken);
+            ? _firefoxInspectionService.InspectScreenPointAsync(
+                target,
+                state.CenterPoint.X,
+                state.CenterPoint.Y,
+                state.Bounds.X,
+                state.Bounds.Y,
+                state.Bounds.Width,
+                state.Bounds.Height,
+                cancellationToken)
+            : _inspectionService.InspectScreenPointAsync(
+                target,
+                state.CenterPoint.X,
+                state.CenterPoint.Y,
+                state.Bounds.X,
+                state.Bounds.Y,
+                state.Bounds.Width,
+                state.Bounds.Height,
+                cancellationToken);
     }
 
     private static bool IsFirefoxTarget(CdpTarget target)
@@ -452,8 +468,7 @@ public partial class MainWindow : Window
             var state = _lastLensState;
             var inspection = await InspectScreenPointAsync(
                 target,
-                state.CenterPoint.X,
-                state.CenterPoint.Y,
+                state,
                 CancellationToken.None);
 
             ShowInspection(target, inspection);
@@ -515,8 +530,14 @@ public partial class MainWindow : Window
 
     private async Task CaptureRegionAsync(LensFrameState state, string screenshotPath)
     {
+        var bytes = await CaptureRegionBytesAsync(state, hideLens: true);
+        await File.WriteAllBytesAsync(screenshotPath, bytes);
+    }
+
+    private async Task<byte[]> CaptureRegionBytesAsync(LensFrameState state, bool hideLens)
+    {
         var wasVisible = _lensWindow?.IsVisible == true;
-        if (wasVisible)
+        if (hideLens && wasVisible)
         {
             _lensWindow!.Hide();
             await Task.Delay(120);
@@ -532,11 +553,13 @@ public partial class MainWindow : Window
             using var bitmap = new System.Drawing.Bitmap(width, height);
             using var graphics = System.Drawing.Graphics.FromImage(bitmap);
             graphics.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(width, height));
-            bitmap.Save(screenshotPath, System.Drawing.Imaging.ImageFormat.Png);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+            return stream.ToArray();
         }
         finally
         {
-            if (wasVisible)
+            if (hideLens && wasVisible)
             {
                 _lensWindow!.Show();
             }
@@ -586,16 +609,22 @@ public partial class MainWindow : Window
         ToggleResultWindow(title, () => new ResultWindow(title, content));
     }
 
-    private void ShowImagesWindow()
+    private async Task ShowImagesWindowAsync()
     {
+        if (_lastLensState is not null)
+        {
+            _lastLensPreviewImage = await CreateLensPreviewImageAsync(_lastLensState);
+        }
+
+        var images = BuildImagesWithLensPreview(_currentInspection?.Images ?? Array.Empty<WebImageResource>());
         if (_imageResourcesWindow is not null)
         {
             _imageResourcesWindow.Activate();
-            _imageResourcesWindow.SetImages(_currentInspection?.Images ?? Array.Empty<WebImageResource>());
+            _imageResourcesWindow.SetImages(images);
             return;
         }
 
-        var window = new ImageResourcesWindow(_currentInspection?.Images ?? Array.Empty<WebImageResource>())
+        var window = new ImageResourcesWindow(images)
         {
             Owner = this,
             Topmost = _settings.Ui.KeepResultWindowsTopmost
@@ -605,6 +634,40 @@ public partial class MainWindow : Window
         window.Closed += (_, _) => _imageResourcesWindow = null;
         PlaceResultWindow(window);
         window.Show();
+    }
+
+    private IReadOnlyList<WebImageResource> BuildImagesWithLensPreview(IReadOnlyList<WebImageResource> images)
+    {
+        if (_lastLensPreviewImage is null)
+        {
+            return images;
+        }
+
+        return new[] { _lastLensPreviewImage }
+            .Concat(images.Where(image => !string.Equals(image.Url, _lastLensPreviewImage.Url, StringComparison.Ordinal)))
+            .ToArray();
+    }
+
+    private async Task<WebImageResource?> CreateLensPreviewImageAsync(LensFrameState state)
+    {
+        try
+        {
+            var bytes = await CaptureRegionBytesAsync(state, hideLens: true);
+            var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+            return new WebImageResource(
+                dataUrl,
+                "lens-frame",
+                "png",
+                "Lens frame",
+                Math.Max(1, (int)Math.Round(state.Bounds.Width)),
+                Math.Max(1, (int)Math.Round(state.Bounds.Height)),
+                false);
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Lens preview unavailable: {exception.Message}");
+            return null;
+        }
     }
 
     private void ToggleResultWindow(string kind, Func<Window> createWindow)
@@ -671,19 +734,27 @@ public partial class MainWindow : Window
         GapColumn.Width = new GridLength(0);
         ResultsColumn.Width = new GridLength(0);
         SideColumn.Width = new GridLength(1, GridUnitType.Star);
-        Width = 245;
-        MinWidth = 245;
+        Width = 286;
+        MinWidth = 286;
         Height = area.Height;
         Top = area.Top;
         Left = Math.Max(area.Left, area.Right - Width);
-        HeaderPanel.Margin = new Thickness(14, 8, 10, 8);
-        HeaderActionsPanel.Margin = new Thickness(10, 0, 0, 0);
-        LogoImage.Width = 54;
-        LogoImage.Height = 54;
+        HeaderPanel.Margin = new Thickness(12, 8, 10, 8);
+        HeaderActionsPanel.Margin = new Thickness(0, 8, 0, 0);
+        HeaderActionsPanel.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+        Grid.SetRow(HeaderActionsPanel, 1);
+        Grid.SetColumn(HeaderActionsPanel, 0);
+        Grid.SetColumnSpan(HeaderActionsPanel, 3);
+        Grid.SetRow(TitleBarControlsPanel, 0);
+        Grid.SetColumn(TitleBarControlsPanel, 2);
+        LogoImage.Width = 48;
+        LogoImage.Height = 48;
         WorkspaceGrid.Margin = new Thickness(8);
         InspectorTitleTextBlock.Visibility = Visibility.Collapsed;
         InspectorHelpTextBlock.Visibility = Visibility.Collapsed;
-        HistoryListBox.MaxHeight = double.PositiveInfinity;
+        HistoryListBox.MaxHeight = 110;
+        CaptureFilesListBox.MaxHeight = 130;
+        SetCompactButtonMetrics(true);
         SetStatus("Compact mode: use the vertical controls and result buttons.");
     }
 
@@ -700,8 +771,16 @@ public partial class MainWindow : Window
         WorkspaceGrid.Margin = new Thickness(16);
         HeaderPanel.Margin = new Thickness(14, 8, 14, 8);
         HeaderActionsPanel.Margin = new Thickness(10, 0, 0, 0);
+        HeaderActionsPanel.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
+        Grid.SetRow(HeaderActionsPanel, 0);
+        Grid.SetColumn(HeaderActionsPanel, 1);
+        Grid.SetColumnSpan(HeaderActionsPanel, 1);
+        Grid.SetRow(TitleBarControlsPanel, 0);
+        Grid.SetColumn(TitleBarControlsPanel, 2);
         LogoImage.Width = 62;
         LogoImage.Height = 62;
+        CaptureFilesListBox.MaxHeight = double.PositiveInfinity;
+        SetCompactButtonMetrics(false);
 
         var targetScreen = screens.FirstOrDefault(screen => !screen.Primary) ?? screens[0];
         var area = targetScreen.WorkingArea;
@@ -710,6 +789,75 @@ public partial class MainWindow : Window
         Left = area.Left + Math.Max(20, (area.Width - Width) / 2);
         Top = area.Top + Math.Max(20, (area.Height - Height) / 2);
         SetStatus($"{screens.Count} monitors detected: wide mode enabled.");
+    }
+
+    private void SetCompactButtonMetrics(bool compact)
+    {
+        var minHeight = compact ? 26.0 : 32.0;
+        var browserWidth = compact ? 32.0 : 38.0;
+        var margin = compact ? new Thickness(0, 0, 5, 5) : new Thickness(0, 0, 8, 0);
+        var actionMargin = compact ? new Thickness(0, 0, 3, 3) : new Thickness(0, 0, 4, 4);
+
+        foreach (var button in new[]
+        {
+            LaunchChromeButton,
+            LaunchEdgeButton,
+            LaunchOperaButton,
+            LaunchFirefoxButton,
+            SettingsButton
+        })
+        {
+            button.Width = browserWidth;
+            button.MinHeight = minHeight;
+            button.Margin = margin;
+        }
+
+        PortTextBox.Width = compact ? 64 : 72;
+        PortTextBox.MinHeight = compact ? 26 : 30;
+        PortTextBox.Margin = compact ? new Thickness(0, 0, 5, 5) : new Thickness(0, 0, 8, 0);
+        PortLabelTextBlock.Margin = compact ? new Thickness(0, 0, 5, 5) : new Thickness(0, 0, 8, 0);
+        RefreshTargetsButton.MinHeight = minHeight;
+        RefreshTargetsButton.Padding = compact ? new Thickness(9, 3, 9, 3) : new Thickness(12, 6, 12, 6);
+        RefreshTargetsButton.Margin = margin;
+        LensButton.MinHeight = minHeight;
+        LensButton.Padding = compact ? new Thickness(8, 3, 8, 3) : new Thickness(12, 6, 12, 6);
+        LensButton.Margin = margin;
+        CaptureActionsGrid.Columns = compact ? 4 : 2;
+        ResultActionsGrid.Columns = compact ? 3 : 2;
+        RenameCaptureButton.Content = compact ? "Name" : "Rename";
+        DeleteCaptureButton.Content = compact ? "Del" : "Delete";
+        RefreshCapturesButton.Content = compact ? "Load" : "Reload";
+
+        foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
+        {
+            button.MinHeight = compact ? 26 : 32;
+            button.Padding = compact ? new Thickness(8, 3, 8, 3) : new Thickness(12, 6, 12, 6);
+            button.Margin = actionMargin;
+            button.FontSize = compact ? 11 : 12;
+        }
+
+        foreach (var button in GetButtons(ActionButtonsPanel))
+        {
+            button.MinHeight = compact ? 28 : 32;
+            button.FontSize = compact ? 11 : 12;
+        }
+    }
+
+    private static IEnumerable<System.Windows.Controls.Button> GetButtons(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is System.Windows.Controls.Button button)
+            {
+                yield return button;
+            }
+
+            foreach (var nested in GetButtons(child))
+            {
+                yield return nested;
+            }
+        }
     }
 
     private Forms.Screen GetCurrentScreen()
@@ -936,7 +1084,7 @@ public partial class MainWindow : Window
 
     private void SetBrushResource(string key, SolidColorBrush brush)
     {
-        if (Resources[key] is SolidColorBrush existing)
+        if (Resources[key] is SolidColorBrush existing && !existing.IsFrozen)
         {
             existing.Color = brush.Color;
             return;

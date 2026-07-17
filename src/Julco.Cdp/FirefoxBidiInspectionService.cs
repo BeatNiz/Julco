@@ -26,15 +26,27 @@ public sealed class FirefoxBidiInspectionService
         CdpTarget target,
         double screenX,
         double screenY,
+        double regionLeft,
+        double regionTop,
+        double regionWidth,
+        double regionHeight,
         CancellationToken cancellationToken)
     {
         var script = $$"""
             JSON.stringify((() => {
                 const screenXValue = {{screenX.ToString(CultureInfo.InvariantCulture)}};
                 const screenYValue = {{screenY.ToString(CultureInfo.InvariantCulture)}};
+                const regionLeftValue = {{regionLeft.ToString(CultureInfo.InvariantCulture)}};
+                const regionTopValue = {{regionTop.ToString(CultureInfo.InvariantCulture)}};
+                const regionWidthValue = {{regionWidth.ToString(CultureInfo.InvariantCulture)}};
+                const regionHeightValue = {{regionHeight.ToString(CultureInfo.InvariantCulture)}};
                 const chromeLeft = Math.max(0, (window.outerWidth - window.innerWidth) / 2);
                 const chromeTop = Math.max(0, window.outerHeight - window.innerHeight - chromeLeft);
                 const dpr = window.devicePixelRatio || 1;
+                const toViewport = (screenX, screenY) => ({
+                    x: screenX - window.screenX - chromeLeft,
+                    y: screenY - window.screenY - chromeTop
+                });
                 const candidates = [
                     { screenX: screenXValue, screenY: screenYValue },
                     { screenX: screenXValue / dpr, screenY: screenYValue / dpr }
@@ -55,7 +67,16 @@ public sealed class FirefoxBidiInspectionService
                     })
                     .find(candidate => candidate.element);
 
-                return window.__julcoInspectElement(hit?.element ?? null, "lens center");
+                const regionTopLeft = toViewport(regionLeftValue, regionTopValue);
+                const regionBottomRight = toViewport(regionLeftValue + regionWidthValue, regionTopValue + regionHeightValue);
+                const region = {
+                    left: Math.min(regionTopLeft.x, regionBottomRight.x),
+                    top: Math.min(regionTopLeft.y, regionBottomRight.y),
+                    right: Math.max(regionTopLeft.x, regionBottomRight.x),
+                    bottom: Math.max(regionTopLeft.y, regionBottomRight.y)
+                };
+
+                return window.__julcoInspectElement(hit?.element ?? null, "lens center", region);
             })())
             """;
 
@@ -78,7 +99,7 @@ public sealed class FirefoxBidiInspectionService
 
         var bootstrap = """
             (() => {
-                window.__julcoInspectElement = (element, fallbackSelector) => {
+                window.__julcoInspectElement = (element, fallbackSelector, region = null) => {
                     if (!element) {
                         return {
                             found: false,
@@ -124,22 +145,45 @@ public sealed class FirefoxBidiInspectionService
                         }
                     };
                     const images = [];
-                    const seenImages = new Set();
+                    const seenImages = new Map();
+                    const scoreImageElement = imageElement => {
+                        if (!imageElement?.getBoundingClientRect || !region) return imageElement === element ? 100000000 : 0;
+                        const rect = imageElement.getBoundingClientRect();
+                        const overlapWidth = Math.max(0, Math.min(rect.right, region.right) - Math.max(rect.left, region.left));
+                        const overlapHeight = Math.max(0, Math.min(rect.bottom, region.bottom) - Math.max(rect.top, region.top));
+                        const overlapArea = overlapWidth * overlapHeight;
+                        const centerX = (region.left + region.right) / 2;
+                        const centerY = (region.top + region.bottom) / 2;
+                        const centerInside = centerX >= rect.left && centerX <= rect.right && centerY >= rect.top && centerY <= rect.bottom;
+                        const elementBonus = imageElement === element ? 100000000 : 0;
+                        const centerBonus = centerInside ? 10000000 : 0;
+                        return elementBonus + centerBonus + overlapArea;
+                    };
                     const addImage = (url, kind, imageElement, alt = "") => {
                         const normalized = normalizeUrl(url);
-                        if (!normalized || seenImages.has(normalized)) return;
+                        if (!normalized) return;
                         const format = formatFromUrl(normalized);
                         if (format === "unknown" && !normalized.startsWith("blob:")) return;
-                        seenImages.add(normalized);
-                        images.push({
+                        const image = {
                             url: normalized,
                             kind,
                             format,
                             alt: alt || imageElement?.getAttribute?.("alt") || imageElement?.getAttribute?.("aria-label") || "",
                             width: Math.round(imageElement?.naturalWidth || imageElement?.videoWidth || imageElement?.clientWidth || 0),
                             height: Math.round(imageElement?.naturalHeight || imageElement?.videoHeight || imageElement?.clientHeight || 0),
-                            isAnimated: format === "gif" || format === "apng" || format === "webp"
-                        });
+                            isAnimated: format === "gif" || format === "apng" || format === "webp",
+                            priority: scoreImageElement(imageElement)
+                        };
+                        const existingIndex = seenImages.get(normalized);
+                        if (existingIndex !== undefined) {
+                            if ((images[existingIndex].priority || 0) < image.priority) {
+                                images[existingIndex] = image;
+                            }
+                            return;
+                        }
+
+                        seenImages.set(normalized, images.length);
+                        images.push(image);
                     };
                     const addSrcSet = (srcset, kind, imageElement) => {
                         if (!srcset) return;
@@ -153,7 +197,19 @@ public sealed class FirefoxBidiInspectionService
                             addImage(match[2], "css-image", imageElement);
                         }
                     };
-                    for (const item of [element, ...element.querySelectorAll("*")]) {
+                    const imageRoots = region
+                        ? Array.from(document.querySelectorAll("*")).filter(item => {
+                            const rect = item.getBoundingClientRect();
+                            if (rect.width <= 0 || rect.height <= 0) return item === element;
+                            return rect.right >= region.left
+                                && rect.left <= region.right
+                                && rect.bottom >= region.top
+                                && rect.top <= region.bottom;
+                        })
+                        : [element, ...element.querySelectorAll("*")];
+                    if (!imageRoots.includes(element)) imageRoots.unshift(element);
+
+                    for (const item of imageRoots) {
                         const tag = item.localName;
                         if (tag === "img" || tag === "image") {
                             addImage(item.currentSrc || item.src || item.href?.baseVal, tag, item);
@@ -238,7 +294,7 @@ public sealed class FirefoxBidiInspectionService
                         outerHtml: element.outerHTML,
                         computedStyle,
                         matchedCssRules: Array.from(new Set(matchedCssRules)).slice(0, 200),
-                        images
+                        images: images.sort((a, b) => (b.priority || 0) - (a.priority || 0))
                     };
                 };
                 return "ready";

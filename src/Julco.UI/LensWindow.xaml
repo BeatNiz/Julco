@@ -5,29 +5,65 @@
         Width="420"
         Height="260"
         MinWidth="240"
-        MinHeight="72"
+        MinHeight="44"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        ResizeMode="CanResizeWithGrip"
+        ResizeMode="NoResize"
         Topmost="True"
         ShowInTaskbar="False"
         Deactivated="Window_Deactivated"
         MouseRightButtonDown="Window_MouseRightButtonDown"
-        LocationChanged="Window_StateChanged"
-        SizeChanged="Window_StateChanged">
-    <Grid>
-        <Border BorderBrush="#40C7FF"
-                BorderThickness="2"
-                Background="#22101318"
-                CornerRadius="4" />
+        LocationChanged="Window_StateChanged">
+    <Canvas x:Name="RootCanvas">
+        <Grid x:Name="CaptureFrame"
+              Width="420"
+              Height="260"
+              Canvas.Left="0"
+              Canvas.Top="0">
+            <Border BorderBrush="#40C7FF"
+                    BorderThickness="2"
+                    Background="#22101318"
+                    CornerRadius="4" />
+
+            <Grid x:Name="GuideGrid"
+                  IsHitTestVisible="False"
+                  Margin="2,26,2,2">
+                <Rectangle Height="1"
+                           Fill="#6640C7FF"
+                           VerticalAlignment="Center" />
+                <Rectangle Width="1"
+                           Fill="#6640C7FF"
+                           HorizontalAlignment="Center" />
+                <Ellipse Width="8"
+                         Height="8"
+                         Fill="#40C7FF"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center" />
+            </Grid>
+
+            <Border x:Name="ResizeHandle"
+                    Width="18"
+                    Height="18"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,4,4"
+                    Background="#8840C7FF"
+                    Cursor="SizeNWSE"
+                    MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"
+                    MouseLeftButtonUp="ResizeHandle_MouseLeftButtonUp"
+                    MouseMove="ResizeHandle_MouseMove" />
+        </Grid>
 
         <Border x:Name="HeaderBorder"
-                VerticalAlignment="Top"
                 Height="26"
+                MinWidth="240"
+                Width="420"
                 Background="#E8181B22"
                 BorderBrush="#40C7FF"
                 BorderThickness="0,0,0,1"
+                Canvas.Left="0"
+                Canvas.Top="0"
                 MouseLeftButtonDown="Header_MouseLeftButtonDown">
             <DockPanel Margin="8,0">
                 <Button x:Name="CaptureButton"
@@ -52,28 +88,5 @@
                            TextTrimming="CharacterEllipsis" />
             </DockPanel>
         </Border>
-
-        <Grid x:Name="GuideGrid"
-              IsHitTestVisible="False"
-              Margin="2,26,2,2">
-            <Rectangle Height="1"
-                       Fill="#6640C7FF"
-                       VerticalAlignment="Center" />
-            <Rectangle Width="1"
-                       Fill="#6640C7FF"
-                       HorizontalAlignment="Center" />
-            <Ellipse Width="8"
-                     Height="8"
-                     Fill="#40C7FF"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Center" />
-        </Grid>
-
-        <ResizeGrip Width="18"
-                    Height="18"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Bottom"
-                    Margin="0,0,4,4"
-                    Background="#8840C7FF" />
-    </Grid>
+    </Canvas>
 </Window>

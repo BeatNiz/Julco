@@ -132,9 +132,13 @@ public partial class SettingsWindow : Window
 
     private void SetBrush(string key, string color)
     {
-        if (Resources[key] is SolidColorBrush brush)
+        if (Resources[key] is SolidColorBrush brush && !brush.IsFrozen)
         {
             brush.Color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color);
+            return;
         }
+
+        Resources[key] = new SolidColorBrush(
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
     }
 }

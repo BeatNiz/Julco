@@ -80,12 +80,73 @@
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Padding" Value="0" />
         </Style>
-        <Style x:Key="WindowChromeButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Width" Value="38" />
+        <Style x:Key="WindowChromeButton" TargetType="Button">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="28" />
             <Setter Property="MinHeight" Value="28" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="4,0,0,0" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Margin" Value="5,0,0,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
+            <Setter Property="FontFamily" Value="Segoe UI Symbol" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource ControlHover}" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource ControlPressed}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="CloseWindowChromeButton" TargetType="Button" BasedOn="{StaticResource WindowChromeButton}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#D64545" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#F87171" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#B91C1C" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
@@ -101,12 +162,22 @@
                 Background="#181B22"
                 BorderBrush="#2A2F3A"
                 BorderThickness="0,0,0,1">
-            <DockPanel x:Name="HeaderPanel"
-                       Margin="14,8"
-                       LastChildFill="False"
-                       MouseLeftButtonDown="HeaderPanel_MouseLeftButtonDown">
+            <Grid x:Name="HeaderPanel"
+                  Margin="14,8"
+                  MouseLeftButtonDown="HeaderPanel_MouseLeftButtonDown">
+                <Grid.RowDefinitions>
+                    <RowDefinition x:Name="HeaderTopRow" Height="Auto" />
+                    <RowDefinition x:Name="HeaderActionsRow" Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="HeaderLogoColumn" Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
                 <StackPanel x:Name="TitleBarControlsPanel"
-                            DockPanel.Dock="Right"
+                            Grid.Row="0"
+                            Grid.Column="2"
                             Orientation="Horizontal"
                             VerticalAlignment="Top">
                     <Button x:Name="HelpButton"
@@ -115,23 +186,26 @@
                             ToolTip="Open Julco help and recommended browser ports."
                             Click="HelpButton_Click" />
                     <Button x:Name="MinimizeButton"
-                            Content="─"
+                            Content="−"
                             Style="{StaticResource WindowChromeButton}"
                             ToolTip="Minimize"
                             Click="MinimizeButton_Click" />
                     <Button x:Name="MaximizeButton"
-                            Content="□"
+                            Content="▢"
                             Style="{StaticResource WindowChromeButton}"
                             ToolTip="Maximize or restore"
                             Click="MaximizeButton_Click" />
                     <Button x:Name="CloseButton"
                             Content="×"
-                            Style="{StaticResource WindowChromeButton}"
+                            FontSize="14"
+                            Style="{StaticResource CloseWindowChromeButton}"
                             ToolTip="Close"
                             Click="CloseButton_Click" />
                 </StackPanel>
 
                 <Image x:Name="LogoImage"
+                       Grid.Row="0"
+                       Grid.Column="0"
                        Source="/Julco.UI;component/Resources/julco-logo-dark.png"
                        Width="62"
                        Height="62"
@@ -140,9 +214,11 @@
                        ToolTip="Julco" />
 
                 <WrapPanel x:Name="HeaderActionsPanel"
-                           DockPanel.Dock="Right"
+                           Grid.Row="0"
+                           Grid.Column="1"
                            Orientation="Horizontal"
                            VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
                            Margin="10,0,0,0">
                     <TextBlock Text="CDP"
                                x:Name="PortLabelTextBlock"
@@ -154,17 +230,6 @@
                              Text="9222"
                              ToolTip="Local port used to connect through Chrome DevTools Protocol."
                              Margin="0,0,8,0" />
-                    <Button x:Name="SettingsButton"
-                            Style="{StaticResource BrowserLogoButton}"
-                            ToolTip="Open Julco settings."
-                            Click="SettingsButton_Click"
-                            Margin="0,0,10,0">
-                        <Image x:Name="SettingsIconImage"
-                               Source="/Julco.UI;component/Resources/settings.png"
-                               Width="18"
-                               Height="18"
-                               Stretch="Uniform" />
-                    </Button>
                     <Button x:Name="LaunchChromeButton"
                             Style="{StaticResource BrowserLogoButton}"
                             ToolTip="Open Chrome with the configured CDP port."
@@ -185,6 +250,16 @@
                                Height="21"
                                Stretch="Uniform" />
                     </Button>
+                    <Button x:Name="LaunchFirefoxButton"
+                            Style="{StaticResource BrowserLogoButton}"
+                            ToolTip="Open Firefox with WebDriver BiDi on the configured port."
+                            Click="LaunchFirefoxButton_Click"
+                            Margin="0,0,8,0">
+                        <Image Source="/Julco.UI;component/Resources/Firefox.png"
+                               Width="21"
+                               Height="21"
+                               Stretch="Uniform" />
+                    </Button>
                     <Button x:Name="LaunchOperaButton"
                             Style="{StaticResource BrowserLogoButton}"
                             ToolTip="Open Opera with the configured CDP port."
@@ -195,14 +270,15 @@
                                Height="21"
                                Stretch="Uniform" />
                     </Button>
-                    <Button x:Name="LaunchFirefoxButton"
+                    <Button x:Name="SettingsButton"
                             Style="{StaticResource BrowserLogoButton}"
-                            ToolTip="Open Firefox with WebDriver BiDi on the configured port."
-                            Click="LaunchFirefoxButton_Click"
-                            Margin="0,0,8,0">
-                        <Image Source="/Julco.UI;component/Resources/Firefox.png"
-                               Width="21"
-                               Height="21"
+                            ToolTip="Open Julco settings."
+                            Click="SettingsButton_Click"
+                            Margin="0,0,10,0">
+                        <Image x:Name="SettingsIconImage"
+                               Source="/Julco.UI;component/Resources/settings.png"
+                               Width="18"
+                               Height="18"
                                Stretch="Uniform" />
                     </Button>
                     <Button x:Name="RefreshTargetsButton"
@@ -225,7 +301,7 @@
                         </StackPanel>
                     </Button>
                 </WrapPanel>
-            </DockPanel>
+            </Grid>
         </Border>
 
         <Grid x:Name="WorkspaceGrid" Grid.Row="1" Margin="16">
@@ -279,43 +355,65 @@
                                 Content="Inspect selector"
                                 ToolTip="Get DOM, computed CSS, matched rules, and attributes for the selector."
                                 Click="InspectButton_Click"
-                                Margin="0,0,0,16" />
+                                Margin="0,0,0,10" />
 
-                        <TextBlock Text="Element"
-                                   FontSize="13"
-                                   Foreground="{StaticResource MutedText}" />
-                        <TextBlock x:Name="ElementTextBlock"
-                                   Text="-"
-                                   Margin="0,4,0,14"
-                                   TextWrapping="Wrap" />
+                        <Border x:Name="InspectionSummaryBorder"
+                                Background="{StaticResource ListBackground}"
+                                BorderBrush="{StaticResource BorderColor}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8"
+                                Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
 
-                        <TextBlock Text="URL"
-                                   FontSize="13"
-                                   Foreground="{StaticResource MutedText}" />
-                        <TextBlock x:Name="UrlTextBlock"
-                                   Text="-"
-                                   Margin="0,4,0,14"
-                                   TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Element" FontSize="11" Foreground="{StaticResource MutedText}" />
+                                <TextBlock x:Name="ElementTextBlock"
+                                           Grid.Row="0"
+                                           Grid.Column="1"
+                                           Text="-"
+                                           FontSize="11"
+                                           TextTrimming="CharacterEllipsis" />
 
-                        <TextBlock Text="Lens"
-                                   FontSize="13"
-                                   Foreground="{StaticResource MutedText}" />
-                        <TextBlock x:Name="LensStateTextBlock"
-                                   Text="Inactive"
-                                   Margin="0,4,0,14"
-                                   TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="URL" FontSize="11" Foreground="{StaticResource MutedText}" Margin="0,4,0,0" />
+                                <TextBlock x:Name="UrlTextBlock"
+                                           Grid.Row="1"
+                                           Grid.Column="1"
+                                           Text="-"
+                                           FontSize="11"
+                                           Margin="0,4,0,0"
+                                           TextTrimming="CharacterEllipsis" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Lens" FontSize="11" Foreground="{StaticResource MutedText}" Margin="0,4,0,0" />
+                                <TextBlock x:Name="LensStateTextBlock"
+                                           Grid.Row="2"
+                                           Grid.Column="1"
+                                           Text="Inactive"
+                                           FontSize="11"
+                                           Margin="0,4,0,0"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </Border>
                     </StackPanel>
 
-                    <Grid Grid.Row="1" Margin="0,8">
+                    <Grid x:Name="ListsGrid" Grid.Row="1" Margin="0,4">
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="*" />
+                            <RowDefinition x:Name="HistoryRow" Height="*" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="1.2*" />
+                            <RowDefinition x:Name="CapturesRow" Height="1.2*" />
                         </Grid.RowDefinitions>
 
                         <ListBox x:Name="HistoryListBox"
                                  Grid.Row="0"
-                                 MinHeight="120"
+                                 MinHeight="72"
                                  Background="{StaticResource ListBackground}"
                                  Foreground="{StaticResource PrimaryText}"
                                  BorderBrush="{StaticResource BorderColor}" />
@@ -329,19 +427,20 @@
                         <ListBox x:Name="CaptureFilesListBox"
                                  Grid.Row="2"
                                  DisplayMemberPath="DisplayName"
-                                 MinHeight="160"
+                                 MinHeight="90"
                                  Background="{StaticResource ListBackground}"
                                  Foreground="{StaticResource PrimaryText}"
                                  BorderBrush="{StaticResource BorderColor}" />
                     </Grid>
 
-                    <StackPanel Grid.Row="2">
+                    <StackPanel x:Name="ActionButtonsPanel" Grid.Row="2">
                         <Button x:Name="CaptureLensButton"
                                 Content="Capture lens"
                                 ToolTip="Save the delimited image and current DOM/CSS/Console/Attributes data."
                                 Click="CaptureLensButton_Click"
-                                Margin="0,0,0,8" />
-                        <UniformGrid Columns="2"
+                                Margin="0,0,0,6" />
+                        <UniformGrid x:Name="CaptureActionsGrid"
+                                     Columns="2"
                                      Margin="0,0,0,8">
                             <Button x:Name="OpenCaptureButton"
                                     Content="Open"
@@ -364,7 +463,8 @@
                                     Click="RefreshCapturesButton_Click"
                                     Margin="4,4,0,0" />
                         </UniformGrid>
-                        <UniformGrid Columns="2"
+                        <UniformGrid x:Name="ResultActionsGrid"
+                                     Columns="2"
                                      Margin="0,0,0,8">
                             <Button Content="DOM"
                                     ToolTip="Show structured HTML with attribute help."

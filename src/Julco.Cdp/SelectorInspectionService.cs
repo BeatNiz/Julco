@@ -73,6 +73,10 @@ public sealed class SelectorInspectionService
         CdpTarget target,
         double screenX,
         double screenY,
+        double regionLeft,
+        double regionTop,
+        double regionWidth,
+        double regionHeight,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(target.WebSocketDebuggerUrl))
@@ -89,9 +93,17 @@ public sealed class SelectorInspectionService
             (() => {
                 const screenXValue = {{screenX.ToString(System.Globalization.CultureInfo.InvariantCulture)}};
                 const screenYValue = {{screenY.ToString(System.Globalization.CultureInfo.InvariantCulture)}};
+                const regionLeftValue = {{regionLeft.ToString(System.Globalization.CultureInfo.InvariantCulture)}};
+                const regionTopValue = {{regionTop.ToString(System.Globalization.CultureInfo.InvariantCulture)}};
+                const regionWidthValue = {{regionWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)}};
+                const regionHeightValue = {{regionHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)}};
                 const chromeLeft = Math.max(0, (window.outerWidth - window.innerWidth) / 2);
                 const chromeTop = Math.max(0, window.outerHeight - window.innerHeight - chromeLeft);
                 const dpr = window.devicePixelRatio || 1;
+                const toViewport = (screenX, screenY) => ({
+                    x: screenX - window.screenX - chromeLeft,
+                    y: screenY - window.screenY - chromeTop
+                });
                 const candidates = [
                     { screenX: screenXValue, screenY: screenYValue, mode: "raw" },
                     { screenX: screenXValue / dpr, screenY: screenYValue / dpr, mode: "devicePixelRatio" }
@@ -130,6 +142,14 @@ public sealed class SelectorInspectionService
                 const element = hit?.element;
                 const viewportX = hit?.viewportX ?? 0;
                 const viewportY = hit?.viewportY ?? 0;
+                const regionTopLeft = toViewport(regionLeftValue, regionTopValue);
+                const regionBottomRight = toViewport(regionLeftValue + regionWidthValue, regionTopValue + regionHeightValue);
+                const region = {
+                    left: Math.min(regionTopLeft.x, regionBottomRight.x),
+                    top: Math.min(regionTopLeft.y, regionBottomRight.y),
+                    right: Math.max(regionTopLeft.x, regionBottomRight.x),
+                    bottom: Math.max(regionTopLeft.y, regionBottomRight.y)
+                };
 
                 if (!element) {
                     return {
@@ -178,22 +198,43 @@ public sealed class SelectorInspectionService
                     }
                 };
                 const images = [];
-                const seenImages = new Set();
+                const seenImages = new Map();
+                const scoreImageElement = imageElement => {
+                    if (!imageElement?.getBoundingClientRect) return 0;
+                    const rect = imageElement.getBoundingClientRect();
+                    const overlapWidth = Math.max(0, Math.min(rect.right, region.right) - Math.max(rect.left, region.left));
+                    const overlapHeight = Math.max(0, Math.min(rect.bottom, region.bottom) - Math.max(rect.top, region.top));
+                    const overlapArea = overlapWidth * overlapHeight;
+                    const centerInside = viewportX >= rect.left && viewportX <= rect.right && viewportY >= rect.top && viewportY <= rect.bottom;
+                    const elementBonus = imageElement === element ? 100000000 : 0;
+                    const centerBonus = centerInside ? 10000000 : 0;
+                    return elementBonus + centerBonus + overlapArea;
+                };
                 const addImage = (url, kind, imageElement, alt = "") => {
                     const normalized = normalizeUrl(url);
-                    if (!normalized || seenImages.has(normalized)) return;
+                    if (!normalized) return;
                     const format = formatFromUrl(normalized);
                     if (format === "unknown" && !normalized.startsWith("blob:")) return;
-                    seenImages.add(normalized);
-                    images.push({
+                    const image = {
                         url: normalized,
                         kind,
                         format,
                         alt: alt || imageElement?.getAttribute?.("alt") || imageElement?.getAttribute?.("aria-label") || "",
                         width: Math.round(imageElement?.naturalWidth || imageElement?.videoWidth || imageElement?.clientWidth || 0),
                         height: Math.round(imageElement?.naturalHeight || imageElement?.videoHeight || imageElement?.clientHeight || 0),
-                        isAnimated: format === "gif" || format === "apng" || format === "webp"
-                    });
+                        isAnimated: format === "gif" || format === "apng" || format === "webp",
+                        priority: scoreImageElement(imageElement)
+                    };
+                    const existingIndex = seenImages.get(normalized);
+                    if (existingIndex !== undefined) {
+                        if ((images[existingIndex].priority || 0) < image.priority) {
+                            images[existingIndex] = image;
+                        }
+                        return;
+                    }
+
+                    seenImages.set(normalized, images.length);
+                    images.push(image);
                 };
                 const addSrcSet = (srcset, kind, imageElement) => {
                     if (!srcset) return;
@@ -207,7 +248,17 @@ public sealed class SelectorInspectionService
                         addImage(match[2], "css-image", imageElement);
                     }
                 };
-                for (const item of [element, ...element.querySelectorAll("*")]) {
+                const imageRoots = Array.from(document.querySelectorAll("*")).filter(item => {
+                    const rect = item.getBoundingClientRect();
+                    if (rect.width <= 0 || rect.height <= 0) return item === element;
+                    return rect.right >= region.left
+                        && rect.left <= region.right
+                        && rect.bottom >= region.top
+                        && rect.top <= region.bottom;
+                });
+                if (!imageRoots.includes(element)) imageRoots.unshift(element);
+
+                for (const item of imageRoots) {
                     const tag = item.localName;
                     if (tag === "img" || tag === "image") {
                         addImage(item.currentSrc || item.src || item.href?.baseVal, tag, item);
@@ -258,7 +309,7 @@ public sealed class SelectorInspectionService
                     attributes,
                     outerHtml: element.outerHTML,
                     computedStyle,
-                    images
+                    images: images.sort((a, b) => (b.priority || 0) - (a.priority || 0))
                 };
             })()
             """;

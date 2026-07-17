@@ -36,10 +36,7 @@ public partial class ImageResourcesWindow : Window
             return;
         }
 
-        if (ImagesListBox.SelectedItem is null)
-        {
-            ImagesListBox.SelectedIndex = 0;
-        }
+        ImagesListBox.SelectedIndex = 0;
     }
 
     private async void ImagesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

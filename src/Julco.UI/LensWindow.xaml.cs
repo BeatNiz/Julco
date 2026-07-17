@@ -9,13 +9,21 @@ namespace Julco.UI;
 
 public partial class LensWindow : Window
 {
+    private const double HeaderMinimumWidth = 240;
+    private const double MinimumCaptureWidth = 34;
+    private const double MinimumCaptureHeight = 34;
     private bool _isPinned;
+    private bool _isResizing;
+    private System.Windows.Point _resizeStartPoint;
+    private double _resizeStartWidth;
+    private double _resizeStartHeight;
 
     public LensWindow()
     {
         InitializeComponent();
         Left = 160;
         Top = 140;
+        UpdateWindowSize();
         UpdateState();
     }
 
@@ -70,14 +78,14 @@ public partial class LensWindow : Window
     private void TogglePin()
     {
         _isPinned = !_isPinned;
-        ResizeMode = _isPinned ? ResizeMode.NoResize : ResizeMode.CanResizeWithGrip;
+        ResizeMode = ResizeMode.NoResize;
         UpdateState();
     }
 
     public void SetPinned(bool isPinned)
     {
         _isPinned = isPinned;
-        ResizeMode = _isPinned ? ResizeMode.NoResize : ResizeMode.CanResizeWithGrip;
+        ResizeMode = ResizeMode.NoResize;
         UpdateState();
     }
 
@@ -93,9 +101,48 @@ public partial class LensWindow : Window
         CaptureRequested?.Invoke(this, State);
     }
 
+    private void ResizeHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_isPinned)
+        {
+            return;
+        }
+
+        _isResizing = true;
+        _resizeStartPoint = e.GetPosition(this);
+        _resizeStartWidth = CaptureFrame.Width;
+        _resizeStartHeight = CaptureFrame.Height;
+        ResizeHandle.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void ResizeHandle_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _isResizing = false;
+        ResizeHandle.ReleaseMouseCapture();
+        UpdateState();
+        e.Handled = true;
+    }
+
+    private void ResizeHandle_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_isResizing || _isPinned)
+        {
+            return;
+        }
+
+        var currentPoint = e.GetPosition(this);
+        var width = Math.Max(MinimumCaptureWidth, _resizeStartWidth + currentPoint.X - _resizeStartPoint.X);
+        var height = Math.Max(MinimumCaptureHeight, _resizeStartHeight + currentPoint.Y - _resizeStartPoint.Y);
+        CaptureFrame.Width = width;
+        CaptureFrame.Height = height;
+        UpdateWindowSize();
+        UpdateState();
+    }
+
     private void UpdateState()
     {
-        var bounds = GetScreenBounds();
+        var bounds = GetCaptureBounds();
         State = LensFrameState.FromBounds(bounds)
             with
             {
@@ -122,23 +169,33 @@ public partial class LensWindow : Window
         var area = screen.WorkingArea;
         var shouldMoveHeaderDown = bounds.Y <= area.Top + 32;
 
-        HeaderBorder.VerticalAlignment = shouldMoveHeaderDown
-            ? VerticalAlignment.Bottom
-            : VerticalAlignment.Top;
         HeaderBorder.BorderThickness = shouldMoveHeaderDown
             ? new Thickness(0, 1, 0, 0)
             : new Thickness(0, 0, 0, 1);
+        HeaderBorder.Width = Math.Max(HeaderMinimumWidth, CaptureFrame.Width);
+        Canvas.SetTop(HeaderBorder, shouldMoveHeaderDown
+            ? Math.Max(0, CaptureFrame.Height - HeaderBorder.Height)
+            : 0);
         GuideGrid.Margin = shouldMoveHeaderDown
             ? new Thickness(2, 2, 2, 26)
             : new Thickness(2, 26, 2, 2);
     }
 
-    private ScreenRect GetScreenBounds()
+    private void UpdateWindowSize()
+    {
+        Width = Math.Max(HeaderMinimumWidth, CaptureFrame.Width);
+        Height = Math.Max(MinimumCaptureHeight, CaptureFrame.Height);
+        RootCanvas.Width = Width;
+        RootCanvas.Height = Height;
+        HeaderBorder.Width = Width;
+    }
+
+    private ScreenRect GetCaptureBounds()
     {
         try
         {
-            var topLeft = PointToScreen(new System.Windows.Point(0, 0));
-            var bottomRight = PointToScreen(new System.Windows.Point(ActualWidth, ActualHeight));
+            var topLeft = CaptureFrame.PointToScreen(new System.Windows.Point(0, 0));
+            var bottomRight = CaptureFrame.PointToScreen(new System.Windows.Point(CaptureFrame.Width, CaptureFrame.Height));
             return new ScreenRect(
                 topLeft.X,
                 topLeft.Y,
@@ -150,8 +207,8 @@ public partial class LensWindow : Window
             return new ScreenRect(
                 Left,
                 Top,
-                ActualWidth > 0 ? ActualWidth : Width,
-                ActualHeight > 0 ? ActualHeight : Height);
+                CaptureFrame.Width,
+                CaptureFrame.Height);
         }
     }
 
