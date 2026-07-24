@@ -40,10 +40,14 @@ public static class IssueTrackerDraftFactory
 
     private static string BuildGitHubBody(CaptureReport report)
     {
+        var template = CaptureReportProfileTemplate.FromReport(report);
         return string.Join(
             Environment.NewLine,
             "## Summary",
             BuildSummary(report),
+            string.Empty,
+            "## Profile focus",
+            BuildMarkdownProfileGuidance(template),
             string.Empty,
             "## Current behavior",
             "- [ ] Confirm the visible behavior in the attached Julco screenshot.",
@@ -70,10 +74,14 @@ public static class IssueTrackerDraftFactory
 
     private static string BuildJiraBody(CaptureReport report)
     {
+        var template = CaptureReportProfileTemplate.FromReport(report);
         return string.Join(
             Environment.NewLine,
             "h2. Summary",
             BuildSummary(report),
+            string.Empty,
+            "h2. Profile focus",
+            BuildPlainProfileGuidance(template, bullet: "*"),
             string.Empty,
             "h2. Current behavior",
             "* Confirm the visible behavior in the attached Julco screenshot.",
@@ -100,10 +108,14 @@ public static class IssueTrackerDraftFactory
 
     private static string BuildGenericBody(CaptureReport report)
     {
+        var template = CaptureReportProfileTemplate.FromReport(report);
         return string.Join(
             Environment.NewLine,
             "SUMMARY",
             BuildSummary(report),
+            string.Empty,
+            "PROFILE FOCUS",
+            BuildPlainProfileGuidance(template, bullet: "-"),
             string.Empty,
             "WHAT HAPPENED",
             "Confirm the visible behavior in the attached Julco screenshot.",
@@ -202,6 +214,32 @@ public static class IssueTrackerDraftFactory
             $"- Tags: {CaptureReport.NormalizeMarkdownLine(report.Notes.Tags)}",
             string.Empty,
             report.Notes.Observation.Trim());
+    }
+
+    private static string BuildMarkdownProfileGuidance(CaptureReportProfileTemplate template)
+    {
+        return string.Join(
+            Environment.NewLine,
+            $"- **Profile:** {template.Name}",
+            $"- **Focus:** {template.Focus}",
+            string.Empty,
+            "**Checklist**",
+            string.Join(Environment.NewLine, template.ReviewChecklist.Select(item => $"- [ ] {item}")),
+            string.Empty,
+            "**Next steps**",
+            string.Join(Environment.NewLine, template.RecommendedNextSteps.Select(item => $"- {item}")));
+    }
+
+    private static string BuildPlainProfileGuidance(CaptureReportProfileTemplate template, string bullet)
+    {
+        return string.Join(
+            Environment.NewLine,
+            $"{bullet} Profile: {template.Name}",
+            $"{bullet} Focus: {template.Focus}",
+            $"{bullet} Checklist:",
+            string.Join(Environment.NewLine, template.ReviewChecklist.Select(item => $"{bullet} [ ] {item}")),
+            $"{bullet} Next steps:",
+            string.Join(Environment.NewLine, template.RecommendedNextSteps.Select(item => $"{bullet} {item}")));
     }
 
     private static string RelativeEvidencePath(string relativePath)

@@ -116,6 +116,7 @@ public sealed record CaptureReport(
 
     public string BuildMarkdown()
     {
+        var template = CaptureReportProfileTemplate.FromReport(this);
         var lines = new List<string>
         {
             "# Julco Capture Report",
@@ -124,6 +125,7 @@ public sealed record CaptureReport(
             $"**URL:** {NormalizeMarkdownLine(PageUrl)}",
             $"**Created:** {CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
             $"**Profile:** {NormalizeMarkdownLine(UsageProfile)}",
+            $"**Profile focus:** {NormalizeMarkdownLine(template.Focus)}",
             string.Empty
         };
 
@@ -133,10 +135,53 @@ public sealed record CaptureReport(
             lines.Add(string.Empty);
         }
 
-        lines.AddRange(new[]
+        lines.AddRange(BuildProfileMarkdown(template));
+        foreach (var section in template.SectionOrder)
         {
-            "## Technical Summary",
+            lines.AddRange(BuildMarkdownSection(section));
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private IReadOnlyList<string> BuildProfileMarkdown(CaptureReportProfileTemplate template)
+    {
+        return new[]
+        {
+            "## Profile Guidance",
             string.Empty,
+            $"**Focus:** {NormalizeMarkdownLine(template.Focus)}",
+            string.Empty,
+            "### Priority Signals",
+            string.Empty
+        }
+        .Concat(template.PrioritySignals.Select(item => $"- {NormalizeMarkdownLine(item)}"))
+        .Concat(new[]
+        {
+            string.Empty,
+            "### Review Checklist",
+            string.Empty
+        })
+        .Concat(template.ReviewChecklist.Select(item => $"- [ ] {NormalizeMarkdownLine(item)}"))
+        .Concat(new[]
+        {
+            string.Empty,
+            "### Recommended Next Steps",
+            string.Empty
+        })
+        .Concat(template.RecommendedNextSteps.Select(item => $"- {NormalizeMarkdownLine(item)}"))
+        .Concat(new[] { string.Empty })
+        .ToArray();
+    }
+
+    private IReadOnlyList<string> BuildMarkdownSection(string section)
+    {
+        return section switch
+        {
+            "Technical" => new[]
+            {
+                "## Technical Summary",
+                string.Empty,
             "| Field | Value |",
             "| --- | --- |",
             $"| Browser | {NormalizeMarkdownLine(Browser)} |",
@@ -149,33 +194,58 @@ public sealed record CaptureReport(
             $"| Center | {Frame.CenterX:0},{Frame.CenterY:0} |",
             $"| Screen | {NormalizeMarkdownLine(Frame.ScreenName)} {Frame.ScreenWidth}x{Frame.ScreenHeight} |",
             $"| Image resources | {Images.Count} |",
-            string.Empty,
-            "## Notes",
-            string.Empty,
-            Notes.HasContent ? Notes.ToMarkdown() : "_No notes added._",
-            string.Empty,
-            "## Common Issues",
-            string.Empty,
-            string.IsNullOrWhiteSpace(CommonIssues) ? "_No issue report found._" : CommonIssues,
-            string.Empty,
-            "## Attributes",
-            string.Empty,
-            CodeBlock(Attributes, "text"),
-            string.Empty,
-            "## Computed CSS",
-            string.Empty,
-            CodeBlock(ComputedCss, "css"),
-            string.Empty,
-            "## DOM",
-            string.Empty,
-            CodeBlock(Dom, "html")
-        });
-
-        return string.Join(Environment.NewLine, lines);
+            string.Empty
+            },
+            "Notes" => new[]
+            {
+                "## Notes",
+                string.Empty,
+                Notes.HasContent ? Notes.ToMarkdown() : "_No notes added._",
+                string.Empty
+            },
+            "Issues" => new[]
+            {
+                "## Common Issues",
+                string.Empty,
+                string.IsNullOrWhiteSpace(CommonIssues) ? "_No issue report found._" : CommonIssues,
+                string.Empty
+            },
+            "Attributes" => new[]
+            {
+                "## Attributes",
+                string.Empty,
+                CodeBlock(Attributes, "text"),
+                string.Empty
+            },
+            "CSS" => new[]
+            {
+                "## Computed CSS",
+                string.Empty,
+                CodeBlock(ComputedCss, "css"),
+                string.Empty
+            },
+            "DOM" => new[]
+            {
+                "## DOM",
+                string.Empty,
+                CodeBlock(Dom, "html"),
+                string.Empty
+            },
+            "Console" => new[]
+            {
+                "## Console",
+                string.Empty,
+                CodeBlock(string.IsNullOrWhiteSpace(Console) ? "No console messages captured." : Console, "text"),
+                string.Empty
+            },
+            "Images" => BuildImagesMarkdownSection(),
+            _ => Array.Empty<string>()
+        };
     }
 
     public string BuildHtml()
     {
+        var template = CaptureReportProfileTemplate.FromReport(this);
         var screenshotMarkup = string.IsNullOrWhiteSpace(ScreenshotPath)
             ? "<div class=\"empty\">No screenshot found.</div>"
             : "<img class=\"screenshot\" src=\"../screenshot.png\" alt=\"Capture screenshot\" />";
@@ -186,6 +256,8 @@ public sealed record CaptureReport(
             ? "<tr><td colspan=\"5\">No image resources detected.</td></tr>"
             : string.Join(Environment.NewLine, Images.Take(80).Select(image =>
                 $"<tr><td>{EscapeHtml(image.Kind)}</td><td>{EscapeHtml(image.Format)}</td><td>{image.DisplayedWidth}x{image.DisplayedHeight}</td><td>{image.NaturalWidth}x{image.NaturalHeight}</td><td><code>{EscapeHtml(Shorten(image.Url, 120))}</code></td></tr>"));
+        var profileMarkup = BuildProfileHtml(template);
+        var orderedSections = string.Join(Environment.NewLine, template.SectionOrder.Select(section => BuildHtmlSection(section, imageRows, notesMarkup)));
 
         return $$"""
             <!doctype html>
@@ -215,6 +287,10 @@ public sealed record CaptureReport(
                 th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
                 th { color:var(--accent); font-weight:600; }
                 .empty { color:var(--muted); padding:18px; border:1px dashed var(--line); border-radius:6px; }
+                .chips { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 0; padding:0; list-style:none; }
+                .chips li { border:1px solid var(--line); background:var(--soft); border-radius:999px; padding:5px 9px; color:var(--muted); }
+                .checklist { margin:0; padding-left:20px; }
+                .checklist li { margin:6px 0; }
                 @media (max-width: 760px) { main { padding:18px; } .hero { grid-template-columns:1fr; } dl { grid-template-columns:1fr; } }
               </style>
             </head>
@@ -223,6 +299,7 @@ public sealed record CaptureReport(
               <header>
                 <h1>Julco Capture Report</h1>
                 <div class="muted">{{EscapeHtml(PageTitle)}} · {{EscapeHtml(CreatedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"))}}</div>
+                <ul class="chips"><li>{{EscapeHtml(template.Name)}}</li><li>{{EscapeHtml(template.Focus)}}</li></ul>
               </header>
               <section class="hero">
                 <div class="panel">{{screenshotMarkup}}</div>
@@ -243,12 +320,8 @@ public sealed record CaptureReport(
                   </dl>
                 </div>
               </section>
-              <section class="panel"><h2>Notes</h2>{{notesMarkup}}</section>
-              <section class="panel"><h2>Common Issues</h2><pre>{{EscapeHtml(string.IsNullOrWhiteSpace(CommonIssues) ? "No issue report found." : CommonIssues)}}</pre></section>
-              <section class="panel"><h2>Image Resources</h2><table><thead><tr><th>Kind</th><th>Format</th><th>Shown</th><th>Natural</th><th>URL</th></tr></thead><tbody>{{imageRows}}</tbody></table></section>
-              <section class="panel"><h2>Attributes</h2><pre>{{EscapeHtml(Attributes)}}</pre></section>
-              <section class="panel"><h2>Computed CSS</h2><pre>{{EscapeHtml(ComputedCss)}}</pre></section>
-              <section class="panel"><h2>DOM</h2><pre>{{EscapeHtml(Dom)}}</pre></section>
+              {{profileMarkup}}
+              {{orderedSections}}
             </main>
             </body>
             </html>
@@ -257,6 +330,7 @@ public sealed record CaptureReport(
 
     public IReadOnlyList<string> BuildPdfLines()
     {
+        var template = CaptureReportProfileTemplate.FromReport(this);
         var lines = new List<string>
         {
             "Julco Capture Report",
@@ -264,31 +338,156 @@ public sealed record CaptureReport(
             $"URL: {PageUrl}",
             $"Created: {CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
             $"Profile: {UsageProfile}",
+            $"Profile focus: {template.Focus}",
             $"Browser: {Browser} | Port: {RemotePort} | Target: {TargetType}",
             $"Element: {TagName} | Selector: {Selector}",
             $"Lens: {Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0} | Center: {Frame.CenterX:0},{Frame.CenterY:0}",
             $"Screen: {Frame.ScreenName} {Frame.ScreenWidth}x{Frame.ScreenHeight}",
             string.Empty,
-            "Notes",
-            Notes.HasContent ? Notes.ShortSummary : "No notes added.",
-            string.IsNullOrWhiteSpace(Notes.Observation) ? string.Empty : Notes.Observation,
-            string.Empty,
-            "Common Issues",
-            string.IsNullOrWhiteSpace(CommonIssues) ? "No issue report found." : CommonIssues,
-            string.Empty,
-            "Attributes",
-            Attributes,
-            string.Empty,
-            "Computed CSS",
-            ComputedCss,
-            string.Empty,
-            "DOM preview",
-            Shorten(Dom, 5000)
         };
+
+        lines.AddRange(BuildProfilePdfLines(template));
+        foreach (var section in template.SectionOrder)
+        {
+            lines.AddRange(BuildPdfSection(section));
+        }
 
         return lines
             .SelectMany(line => WrapLine(line.ReplaceLineEndings(" "), 96))
             .ToArray();
+    }
+
+    private IReadOnlyList<string> BuildImagesMarkdownSection()
+    {
+        var lines = new List<string>
+        {
+            "## Image Resources",
+            string.Empty
+        };
+
+        if (Images.Count == 0)
+        {
+            lines.Add("_No image resources detected._");
+            lines.Add(string.Empty);
+            return lines;
+        }
+
+        lines.Add("| Kind | Format | Shown | Natural | URL |");
+        lines.Add("| --- | --- | --- | --- | --- |");
+        lines.AddRange(Images.Take(80).Select(image =>
+            $"| {NormalizeMarkdownLine(image.Kind)} | {NormalizeMarkdownLine(image.Format)} | {image.DisplayedWidth}x{image.DisplayedHeight} | {image.NaturalWidth}x{image.NaturalHeight} | `{NormalizeMarkdownLine(Shorten(image.Url, 120))}` |"));
+        lines.Add(string.Empty);
+        return lines;
+    }
+
+    private string BuildProfileHtml(CaptureReportProfileTemplate template)
+    {
+        return $"""
+            <section class="panel">
+              <h2>Profile Guidance</h2>
+              <p>{EscapeHtml(template.Focus)}</p>
+              <h3>Priority Signals</h3>
+              <ul>{string.Join(Environment.NewLine, template.PrioritySignals.Select(item => $"<li>{EscapeHtml(item)}</li>"))}</ul>
+              <h3>Review Checklist</h3>
+              <ul class="checklist">{string.Join(Environment.NewLine, template.ReviewChecklist.Select(item => $"<li>{EscapeHtml(item)}</li>"))}</ul>
+              <h3>Recommended Next Steps</h3>
+              <ul>{string.Join(Environment.NewLine, template.RecommendedNextSteps.Select(item => $"<li>{EscapeHtml(item)}</li>"))}</ul>
+            </section>
+            """;
+    }
+
+    private string BuildHtmlSection(string section, string imageRows, string notesMarkup)
+    {
+        return section switch
+        {
+            "Technical" => $$"""
+                <section class="panel">
+                  <h2>Technical Summary</h2>
+                  <dl>
+                    {{Definition("URL", PageUrl)}}
+                    {{Definition("Browser", Browser)}}
+                    {{Definition("Remote port", RemotePort)}}
+                    {{Definition("Target type", TargetType)}}
+                    {{Definition("Profile", UsageProfile)}}
+                    {{Definition("Element", TagName)}}
+                    {{Definition("Selector", Selector)}}
+                    {{Definition("Lens frame", $"{Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0}")}}
+                    {{Definition("Center", $"{Frame.CenterX:0},{Frame.CenterY:0}")}}
+                    {{Definition("Screen", $"{Frame.ScreenName} {Frame.ScreenWidth}x{Frame.ScreenHeight}")}}
+                    {{Definition("Images", Images.Count.ToString(CultureInfo.InvariantCulture))}}
+                  </dl>
+                </section>
+                """,
+            "Notes" => $"<section class=\"panel\"><h2>Notes</h2>{notesMarkup}</section>",
+            "Issues" => $"<section class=\"panel\"><h2>Common Issues</h2><pre>{EscapeHtml(string.IsNullOrWhiteSpace(CommonIssues) ? "No issue report found." : CommonIssues)}</pre></section>",
+            "Attributes" => $"<section class=\"panel\"><h2>Attributes</h2><pre>{EscapeHtml(Attributes)}</pre></section>",
+            "CSS" => $"<section class=\"panel\"><h2>Computed CSS</h2><pre>{EscapeHtml(ComputedCss)}</pre></section>",
+            "DOM" => $"<section class=\"panel\"><h2>DOM</h2><pre>{EscapeHtml(Dom)}</pre></section>",
+            "Console" => $"<section class=\"panel\"><h2>Console</h2><pre>{EscapeHtml(string.IsNullOrWhiteSpace(Console) ? "No console messages captured." : Console)}</pre></section>",
+            "Images" => $"<section class=\"panel\"><h2>Image Resources</h2><table><thead><tr><th>Kind</th><th>Format</th><th>Shown</th><th>Natural</th><th>URL</th></tr></thead><tbody>{imageRows}</tbody></table></section>",
+            _ => string.Empty
+        };
+    }
+
+    private IReadOnlyList<string> BuildProfilePdfLines(CaptureReportProfileTemplate template)
+    {
+        return new[]
+        {
+            "Profile Guidance",
+            $"Focus: {template.Focus}",
+            "Priority Signals:",
+        }
+        .Concat(template.PrioritySignals.Select(item => $"- {item}"))
+        .Concat(new[] { "Review Checklist:" })
+        .Concat(template.ReviewChecklist.Select(item => $"- [ ] {item}"))
+        .Concat(new[] { "Recommended Next Steps:" })
+        .Concat(template.RecommendedNextSteps.Select(item => $"- {item}"))
+        .Concat(new[] { string.Empty })
+        .ToArray();
+    }
+
+    private IReadOnlyList<string> BuildPdfSection(string section)
+    {
+        return section switch
+        {
+            "Technical" => new[]
+            {
+                "Technical Summary",
+                $"URL: {PageUrl}",
+                $"Browser: {Browser} | Port: {RemotePort} | Target: {TargetType}",
+                $"Element: {TagName} | Selector: {Selector}",
+                $"Lens: {Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0}",
+                $"Screen: {Frame.ScreenName} {Frame.ScreenWidth}x{Frame.ScreenHeight}",
+                $"Images detected: {Images.Count}",
+                string.Empty
+            },
+            "Notes" => new[]
+            {
+                "Notes",
+                Notes.HasContent ? Notes.ShortSummary : "No notes added.",
+                string.IsNullOrWhiteSpace(Notes.Observation) ? string.Empty : Notes.Observation,
+                string.Empty
+            },
+            "Issues" => new[]
+            {
+                "Common Issues",
+                string.IsNullOrWhiteSpace(CommonIssues) ? "No issue report found." : CommonIssues,
+                string.Empty
+            },
+            "Attributes" => new[] { "Attributes", Attributes, string.Empty },
+            "CSS" => new[] { "Computed CSS", ComputedCss, string.Empty },
+            "DOM" => new[] { "DOM preview", Shorten(Dom, 5000), string.Empty },
+            "Console" => new[] { "Console", string.IsNullOrWhiteSpace(Console) ? "No console messages captured." : Console, string.Empty },
+            "Images" => new[]
+            {
+                "Image Resources",
+                Images.Count == 0
+                    ? "No image resources detected."
+                    : string.Join(Environment.NewLine, Images.Take(30).Select(image => $"{image.Kind} {image.Format} shown {image.DisplayedWidth}x{image.DisplayedHeight}, natural {image.NaturalWidth}x{image.NaturalHeight}: {Shorten(image.Url, 120)}")),
+                string.Empty
+            },
+            _ => Array.Empty<string>()
+        };
     }
 
     public static string NormalizeMarkdownLine(string? value)
