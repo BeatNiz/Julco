@@ -115,6 +115,8 @@ public partial class MainWindow : Window
 
     private async void ShowImagesButton_Click(object sender, RoutedEventArgs e) => await ShowImagesWindowAsync();
 
+    private void ShowIssuesButton_Click(object sender, RoutedEventArgs e) => ShowIssuesWindow();
+
     private async void CaptureLensButton_Click(object sender, RoutedEventArgs e) => await CaptureLensAsync();
 
     private void OpenCaptureButton_Click(object sender, RoutedEventArgs e) => OpenSelectedCapture();
@@ -411,6 +413,12 @@ public partial class MainWindow : Window
         DomTextBox.Text = DomFormatter.PrettyPrint(result.OuterHtml);
         CssExplanationGrid.ItemsSource = CssExplanationBuilder.Build(result.ComputedStyle);
         ComputedTextBox.Text = BuildComputedCss(result);
+        var commonIssues = CommonIssueDetector.Detect(result);
+        IssuesGrid.ItemsSource = commonIssues;
+        IssuesTextBox.Text = CommonIssueDetector.BuildReport(commonIssues);
+        IssuesSummaryTextBlock.Text = commonIssues.Count == 0
+            ? "No common issues detected."
+            : $"{commonIssues.Count} common issue(s) detected.";
         RulesTextBox.Text = string.Join(Environment.NewLine, result.MatchedCssRules);
         ConsoleTextBox.Text = result.ConsoleMessages.Count == 0
             ? "No messages captured during the connection."
@@ -512,6 +520,13 @@ public partial class MainWindow : Window
             File.WriteAllText(
                 Path.Combine(captureDirectory, "image-resources.json"),
                 JsonSerializer.Serialize(inspection.Images, jsonOptions));
+            var commonIssues = CommonIssueDetector.Detect(inspection);
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "common-issues.json"),
+                JsonSerializer.Serialize(commonIssues, jsonOptions));
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "common-issues.md"),
+                CommonIssueDetector.BuildReport(commonIssues));
 
             var evidence = BuildEvidencePackage(
                 target,
@@ -877,6 +892,19 @@ public partial class MainWindow : Window
                 BuildComputedCss(_currentInspection))));
     }
 
+    private void ShowIssuesWindow()
+    {
+        if (_currentInspection is null)
+        {
+            SetStatus("No active inspection.");
+            return;
+        }
+
+        ToggleResultWindow(
+            "Issues",
+            () => new CommonIssuesWindow(CommonIssueDetector.Detect(_currentInspection)));
+    }
+
     private void ShowResultWindow(string title, string content)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -1108,6 +1136,7 @@ public partial class MainWindow : Window
         RefreshCapturesButton.Content = compact ? "Load" : "Reload";
         EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
         CompareCapturesButton.Content = compact ? "Diff" : "Compare";
+        ShowIssuesButton.Content = compact ? "Audit" : "Issues";
 
         foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
         {
@@ -1651,6 +1680,7 @@ public partial class MainWindow : Window
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
         ShowImagesButton.IsEnabled = !isBusy;
+        ShowIssuesButton.IsEnabled = !isBusy;
 
         if (message is not null)
         {

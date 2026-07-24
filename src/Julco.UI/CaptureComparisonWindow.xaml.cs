@@ -377,6 +377,8 @@ public partial class CaptureComparisonWindow : Window
             "console.txt",
             "attributes.txt",
             "image-resources.json",
+            "common-issues.json",
+            "common-issues.md",
             "capture-notes.json",
             "notes.md",
             "evidence-summary.md"
