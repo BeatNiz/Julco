@@ -1,11 +1,11 @@
 <Window x:Class="Julco.UI.EvidenceNotesWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Julco Evidence Notes"
-        Width="520"
-        Height="430"
-        MinWidth="420"
-        MinHeight="320"
+        Title="Julco Capture Notes"
+        Width="620"
+        Height="560"
+        MinWidth="500"
+        MinHeight="440"
         WindowStartupLocation="CenterOwner"
         Background="#101217"
         Foreground="#F4F6F8">
@@ -21,40 +21,120 @@
             <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
             <Setter Property="Foreground" Value="#F4F6F8" />
         </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="#F4F6F8" />
+            <Setter Property="CaretBrush" Value="#F4F6F8" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="#101217" />
+        </Style>
     </Window.Resources>
 
     <Grid Margin="18">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel>
-            <TextBlock Text="Evidence notes"
+            <TextBlock Text="Capture notes"
                        FontSize="18"
                        FontWeight="SemiBold" />
-            <TextBlock Text="Add the observation, expected behavior, steps, severity, or any context that helps explain this capture."
+            <TextBlock Text="Write the observation in a way that can travel with the screenshot and technical evidence."
                        Foreground="{StaticResource MutedText}"
                        TextWrapping="Wrap"
                        Margin="0,5,0,14" />
         </StackPanel>
 
-        <TextBox x:Name="NotesTextBox"
-                 Grid.Row="1"
-                 AcceptsReturn="True"
-                 AcceptsTab="True"
-                 TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto"
-                 Background="{StaticResource InputBackground}"
-                 Foreground="#F4F6F8"
-                 BorderBrush="{StaticResource BorderColor}"
-                 CaretBrush="#F4F6F8"
-                 Padding="10"
-                 FontFamily="Segoe UI"
-                 FontSize="13" />
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Row="2"
+            <TextBlock Text="Category" Foreground="{StaticResource MutedText}" />
+            <TextBlock Grid.Column="2" Text="Severity" Foreground="{StaticResource MutedText}" />
+            <TextBlock Grid.Column="4" Text="Status" Foreground="{StaticResource MutedText}" />
+
+            <ComboBox x:Name="CategoryComboBox"
+                      Grid.Row="1"
+                      Grid.Column="0"
+                      Margin="0,4,0,0" />
+            <ComboBox x:Name="SeverityComboBox"
+                      Grid.Row="1"
+                      Grid.Column="2"
+                      Margin="0,4,0,0" />
+            <ComboBox x:Name="StatusComboBox"
+                      Grid.Row="1"
+                      Grid.Column="4"
+                      Margin="0,4,0,0" />
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="Quick examples"
+                       Foreground="{StaticResource MutedText}"
+                       Margin="0,0,0,4" />
+            <ListBox x:Name="TemplatesListBox"
+                     Grid.Row="1"
+                     Background="{StaticResource InputBackground}"
+                     Foreground="#F4F6F8"
+                     BorderBrush="{StaticResource BorderColor}"
+                     SelectionChanged="TemplatesListBox_SelectionChanged" />
+
+            <TextBlock Grid.Column="2"
+                       Text="Observation"
+                       Foreground="{StaticResource MutedText}"
+                       Margin="0,0,0,4" />
+            <TextBox x:Name="ObservationTextBox"
+                     Grid.Row="1"
+                     Grid.Column="2"
+                     AcceptsReturn="True"
+                     AcceptsTab="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     FontFamily="Segoe UI"
+                     FontSize="13" />
+
+            <TextBlock Grid.Row="2"
+                       Grid.Column="2"
+                       Text="Tags"
+                       Foreground="{StaticResource MutedText}"
+                       Margin="0,10,0,4" />
+            <TextBox x:Name="TagsTextBox"
+                     Grid.Row="3"
+                     Grid.Column="2"
+                     ToolTip="Comma-separated tags, for example: layout, image, contrast, regression" />
+        </Grid>
+
+        <StackPanel Grid.Row="3"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,14,0,0">

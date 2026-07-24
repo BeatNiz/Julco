@@ -409,6 +409,7 @@
                             <RowDefinition x:Name="HistoryRow" Height="*" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition x:Name="CapturesRow" Height="1.2*" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <ListBox x:Name="HistoryListBox"
@@ -430,7 +431,23 @@
                                  MinHeight="90"
                                  Background="{StaticResource ListBackground}"
                                  Foreground="{StaticResource PrimaryText}"
-                                 BorderBrush="{StaticResource BorderColor}" />
+                                 BorderBrush="{StaticResource BorderColor}"
+                                 SelectionChanged="CaptureFilesListBox_SelectionChanged" />
+
+                        <Border Grid.Row="3"
+                                Background="{StaticResource InputBackground}"
+                                BorderBrush="{StaticResource BorderColor}"
+                                BorderThickness="1"
+                                Padding="8"
+                                Margin="0,6,0,0">
+                            <TextBlock x:Name="CaptureNotesPreviewTextBlock"
+                                       Text="No capture selected."
+                                       Foreground="{StaticResource MutedText}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxHeight="48" />
+                        </Border>
                     </Grid>
 
                     <StackPanel x:Name="ActionButtonsPanel" Grid.Row="2">

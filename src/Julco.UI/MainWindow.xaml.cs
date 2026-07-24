@@ -127,6 +127,8 @@ public partial class MainWindow : Window
 
     private void EditEvidenceNotesButton_Click(object sender, RoutedEventArgs e) => EditSelectedEvidenceNotes();
 
+    private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateCaptureNotesPreview();
+
     private void CopyHtmlButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentInspection is null)
@@ -513,7 +515,7 @@ public partial class MainWindow : Window
                 "console.txt",
                 "attributes.txt",
                 "image-resources.json");
-            File.WriteAllText(Path.Combine(captureDirectory, "notes.md"), notes);
+            SaveCaptureNotes(captureDirectory, notes);
             File.WriteAllText(
                 Path.Combine(captureDirectory, "evidence.json"),
                 JsonSerializer.Serialize(evidence, jsonOptions));
@@ -552,9 +554,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private string PromptForEvidenceNotes(string existingNotes = "")
+    private CaptureNotes PromptForEvidenceNotes(CaptureNotes? existingNotes = null)
     {
-        var window = new EvidenceNotesWindow(existingNotes)
+        var window = new EvidenceNotesWindow(existingNotes ?? CaptureNotes.Empty)
         {
             Owner = this,
             Topmost = _settings.Ui.KeepResultWindowsTopmost
@@ -562,14 +564,14 @@ public partial class MainWindow : Window
 
         return window.ShowDialog() == true
             ? window.Notes
-            : existingNotes;
+            : existingNotes ?? CaptureNotes.Empty;
     }
 
     private EvidencePackage BuildEvidencePackage(
         CdpTarget target,
         SelectorInspectionResult inspection,
         LensFrameState state,
-        string notes,
+        CaptureNotes notes,
         string screenshotFile,
         string inspectionFile,
         string domFile,
@@ -619,8 +621,10 @@ public partial class MainWindow : Window
                 consoleFile,
                 attributesFile,
                 imagesFile,
+                "capture-notes.json",
                 "notes.md",
                 "evidence-summary.md"),
+            notes.ToEvidenceText(),
             notes);
     }
 
@@ -652,7 +656,7 @@ public partial class MainWindow : Window
             $"- Screen: {NormalizeMarkdownLine(evidence.Frame.ScreenName)} ({evidence.Frame.ScreenWidth}x{evidence.Frame.ScreenHeight})",
             string.Empty,
             "## Notes",
-            string.IsNullOrWhiteSpace(evidence.Notes) ? "_No notes added._" : evidence.Notes,
+            BuildNotesMarkdown(evidence),
             string.Empty,
             "## Files",
             $"- Screenshot: `{evidence.Files.Screenshot}`",
@@ -662,6 +666,7 @@ public partial class MainWindow : Window
             $"- Console: `{evidence.Files.Console}`",
             $"- Attributes: `{evidence.Files.Attributes}`",
             $"- Image resources: `{evidence.Files.Images}`",
+            $"- Structured notes: `{evidence.Files.StructuredNotes}`",
             $"- Notes: `{evidence.Files.Notes}`",
             string.Empty,
             "## Element Attributes"
@@ -687,11 +692,89 @@ public partial class MainWindow : Window
         return string.Join(Environment.NewLine, lines);
     }
 
+    private static string BuildNotesMarkdown(EvidencePackage evidence)
+    {
+        if (evidence.StructuredNotes is not null && evidence.StructuredNotes.HasContent)
+        {
+            return string.Join(
+                Environment.NewLine,
+                $"- Category: {evidence.StructuredNotes.Category}",
+                $"- Severity: {evidence.StructuredNotes.Severity}",
+                $"- Status: {evidence.StructuredNotes.Status}",
+                $"- Tags: {NormalizeMarkdownLine(evidence.StructuredNotes.Tags)}",
+                string.Empty,
+                evidence.StructuredNotes.Observation.Trim());
+        }
+
+        return string.IsNullOrWhiteSpace(evidence.Notes) ? "_No notes added._" : evidence.Notes;
+    }
+
     private static string NormalizeMarkdownLine(string? value)
     {
         return string.IsNullOrWhiteSpace(value)
             ? "-"
             : value.ReplaceLineEndings(" ").Trim();
+    }
+
+    private static CaptureNotes LoadCaptureNotes(string captureDirectory)
+    {
+        var structuredNotesPath = Path.Combine(captureDirectory, "capture-notes.json");
+        if (File.Exists(structuredNotesPath))
+        {
+            try
+            {
+                var notes = JsonSerializer.Deserialize<CaptureNotes>(File.ReadAllText(structuredNotesPath));
+                if (notes is not null)
+                {
+                    return notes;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        var notesPath = Path.Combine(captureDirectory, "notes.md");
+        if (File.Exists(notesPath))
+        {
+            var legacyNotes = ExtractObservationFromNotesMarkdown(File.ReadAllText(notesPath));
+            if (!string.IsNullOrWhiteSpace(legacyNotes))
+            {
+                return CaptureNotes.Empty with
+                {
+                    Observation = legacyNotes,
+                    UpdatedAt = new DateTimeOffset(File.GetLastWriteTime(notesPath))
+                };
+            }
+        }
+
+        return CaptureNotes.Empty;
+    }
+
+    private static string ExtractObservationFromNotesMarkdown(string content)
+    {
+        var text = content.Trim();
+        const string observationHeader = "## Observation";
+        var observationIndex = text.IndexOf(observationHeader, StringComparison.OrdinalIgnoreCase);
+        if (observationIndex < 0)
+        {
+            return text;
+        }
+
+        return text[(observationIndex + observationHeader.Length)..]
+            .Replace("_No observation added._", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Trim();
+    }
+
+    private static void SaveCaptureNotes(string captureDirectory, CaptureNotes notes)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        File.WriteAllText(
+            Path.Combine(captureDirectory, "capture-notes.json"),
+            JsonSerializer.Serialize(notes, jsonOptions));
+        File.WriteAllText(
+            Path.Combine(captureDirectory, "notes.md"),
+            notes.ToMarkdown());
     }
 
     private async Task CaptureRegionAsync(LensFrameState state, string screenshotPath)
@@ -988,11 +1071,12 @@ public partial class MainWindow : Window
         LensButton.MinHeight = minHeight;
         LensButton.Padding = compact ? new Thickness(8, 3, 8, 3) : new Thickness(12, 6, 12, 6);
         LensButton.Margin = margin;
-        CaptureActionsGrid.Columns = compact ? 4 : 2;
+        CaptureActionsGrid.Columns = compact ? 3 : 2;
         ResultActionsGrid.Columns = compact ? 3 : 2;
         RenameCaptureButton.Content = compact ? "Name" : "Rename";
         DeleteCaptureButton.Content = compact ? "Del" : "Delete";
         RefreshCapturesButton.Content = compact ? "Load" : "Reload";
+        EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
 
         foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
         {
@@ -1344,12 +1428,26 @@ public partial class MainWindow : Window
 
         CaptureFilesListBox.ItemsSource = null;
         CaptureFilesListBox.ItemsSource = _captureFiles;
+        UpdateCaptureNotesPreview();
     }
 
     private void SelectCapture(string directory)
     {
         CaptureFilesListBox.SelectedItem = _captureFiles.FirstOrDefault(item =>
             string.Equals(item.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase));
+        UpdateCaptureNotesPreview();
+    }
+
+    private void UpdateCaptureNotesPreview()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            CaptureNotesPreviewTextBlock.Text = "No capture selected.";
+            return;
+        }
+
+        var notes = LoadCaptureNotes(capture.DirectoryPath);
+        CaptureNotesPreviewTextBlock.Text = notes.ShortSummary;
     }
 
     private void OpenSelectedCapture()
@@ -1439,15 +1537,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        var notesPath = Path.Combine(capture.DirectoryPath, "notes.md");
         var evidencePath = Path.Combine(capture.DirectoryPath, "evidence.json");
         var summaryPath = Path.Combine(capture.DirectoryPath, "evidence-summary.md");
-        var notes = File.Exists(notesPath)
-            ? File.ReadAllText(notesPath)
-            : string.Empty;
+        var notes = LoadCaptureNotes(capture.DirectoryPath);
         var updatedNotes = PromptForEvidenceNotes(notes);
 
-        File.WriteAllText(notesPath, updatedNotes);
+        SaveCaptureNotes(capture.DirectoryPath, updatedNotes);
 
         if (File.Exists(evidencePath))
         {
@@ -1456,7 +1551,11 @@ public partial class MainWindow : Window
                 var evidence = JsonSerializer.Deserialize<EvidencePackage>(File.ReadAllText(evidencePath));
                 if (evidence is not null)
                 {
-                    evidence = evidence with { Notes = updatedNotes };
+                    evidence = evidence with
+                    {
+                        Notes = updatedNotes.ToEvidenceText(),
+                        StructuredNotes = updatedNotes
+                    };
                     var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
                     File.WriteAllText(evidencePath, JsonSerializer.Serialize(evidence, jsonOptions));
                     File.WriteAllText(summaryPath, BuildEvidenceMarkdown(evidence));
@@ -1471,6 +1570,7 @@ public partial class MainWindow : Window
 
         LoadCaptures();
         SelectCapture(capture.DirectoryPath);
+        UpdateCaptureNotesPreview();
         SetStatus("Evidence notes saved.");
     }
 
@@ -1612,7 +1712,8 @@ public partial class MainWindow : Window
         EvidenceElementContext Element,
         EvidenceFrameContext Frame,
         EvidenceFiles Files,
-        string Notes);
+        string Notes,
+        CaptureNotes? StructuredNotes);
 
     private sealed record EvidenceBrowserContext(
         string Name,
@@ -1650,6 +1751,7 @@ public partial class MainWindow : Window
         string Console,
         string Attributes,
         string Images,
+        string StructuredNotes,
         string Notes,
         string Summary);
 
@@ -1668,7 +1770,10 @@ public partial class MainWindow : Window
                     var evidence = JsonSerializer.Deserialize<EvidencePackage>(File.ReadAllText(evidencePath));
                     if (evidence is not null)
                     {
-                        var noteMarker = string.IsNullOrWhiteSpace(evidence.Notes) ? string.Empty : "  notes";
+                        var notes = evidence.StructuredNotes ?? LoadCaptureNotes(directoryPath);
+                        var noteMarker = notes.HasContent
+                            ? $"  notes:{notes.Severity}/{notes.Status}"
+                            : string.Empty;
                         return new CaptureFileRecord(
                             directoryPath,
                             $"{evidence.CreatedAt:MM-dd HH:mm}  evidence  {evidence.Element.TagName}  {evidence.Element.Selector}{noteMarker}",
@@ -1688,9 +1793,13 @@ public partial class MainWindow : Window
                     var manifest = JsonSerializer.Deserialize<CaptureManifest>(File.ReadAllText(manifestPath));
                     if (manifest is not null)
                     {
+                        var notes = LoadCaptureNotes(directoryPath);
+                        var noteMarker = notes.HasContent
+                            ? $"  notes:{notes.Severity}/{notes.Status}"
+                            : string.Empty;
                         return new CaptureFileRecord(
                             directoryPath,
-                            $"{manifest.CreatedAt:MM-dd HH:mm}  {manifest.TagName}  {manifest.Selector}",
+                            $"{manifest.CreatedAt:MM-dd HH:mm}  {manifest.TagName}  {manifest.Selector}{noteMarker}",
                             manifest.CreatedAt);
                     }
                 }
