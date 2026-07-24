@@ -513,23 +513,7 @@ public partial class CaptureComparisonWindow : Window
 
         private static CaptureNotes LoadCaptureNotes(string captureDirectory)
         {
-            var structuredNotesPath = Path.Combine(captureDirectory, "capture-notes.json");
-            if (File.Exists(structuredNotesPath))
-            {
-                try
-                {
-                    var notes = JsonSerializer.Deserialize<CaptureNotes>(File.ReadAllText(structuredNotesPath));
-                    if (notes is not null)
-                    {
-                        return notes;
-                    }
-                }
-                catch (JsonException)
-                {
-                }
-            }
-
-            return CaptureNotes.Empty;
+            return CaptureNotesStore.Load(captureDirectory);
         }
 
         private static IReadOnlyDictionary<string, string> BuildHashes(string directoryPath)
