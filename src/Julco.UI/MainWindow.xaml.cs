@@ -127,6 +127,8 @@ public partial class MainWindow : Window
 
     private void EditEvidenceNotesButton_Click(object sender, RoutedEventArgs e) => EditSelectedEvidenceNotes();
 
+    private void CompareCapturesButton_Click(object sender, RoutedEventArgs e) => CompareCaptures();
+
     private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateCaptureNotesPreview();
 
     private void CopyHtmlButton_Click(object sender, RoutedEventArgs e)
@@ -1077,6 +1079,7 @@ public partial class MainWindow : Window
         DeleteCaptureButton.Content = compact ? "Del" : "Delete";
         RefreshCapturesButton.Content = compact ? "Load" : "Reload";
         EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
+        CompareCapturesButton.Content = compact ? "Diff" : "Compare";
 
         foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
         {
@@ -1574,6 +1577,30 @@ public partial class MainWindow : Window
         SetStatus("Evidence notes saved.");
     }
 
+    private void CompareCaptures()
+    {
+        if (_captureFiles.Count < 2)
+        {
+            SetStatus("Create at least two captures before comparing.");
+            return;
+        }
+
+        var selectedDirectory = CaptureFilesListBox.SelectedItem is CaptureFileRecord capture
+            ? capture.DirectoryPath
+            : _captureFiles[0].DirectoryPath;
+        var window = new CaptureComparisonWindow(
+            _captureFiles.Select(item => item.DirectoryPath),
+            selectedDirectory)
+        {
+            Owner = this,
+            Topmost = _settings.Ui.KeepResultWindowsTopmost
+        };
+
+        PlaceResultWindow(window);
+        window.Show();
+        SetStatus("Capture comparison opened.");
+    }
+
     private void SetBusy(bool isBusy, string? message = null)
     {
         LaunchChromeButton.IsEnabled = !isBusy;
@@ -1591,6 +1618,7 @@ public partial class MainWindow : Window
         DeleteCaptureButton.IsEnabled = !isBusy;
         RefreshCapturesButton.IsEnabled = !isBusy;
         EditEvidenceNotesButton.IsEnabled = !isBusy;
+        CompareCapturesButton.IsEnabled = !isBusy;
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;

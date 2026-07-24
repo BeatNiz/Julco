@@ -484,6 +484,11 @@
                                     ToolTip="Edit notes for the selected evidence package."
                                     Click="EditEvidenceNotesButton_Click"
                                     Margin="0,4,4,0" />
+                            <Button x:Name="CompareCapturesButton"
+                                    Content="Compare"
+                                    ToolTip="Compare the selected capture against another capture visually and technically."
+                                    Click="CompareCapturesButton_Click"
+                                    Margin="4,4,0,0" />
                         </UniformGrid>
                         <UniformGrid x:Name="ResultActionsGrid"
                                      Columns="2"
