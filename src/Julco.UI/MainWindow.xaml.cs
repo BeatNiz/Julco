@@ -169,6 +169,13 @@ public partial class MainWindow : Window
 
     private void PrivacyPreviewButton_Click(object sender, RoutedEventArgs e) => ShowPrivacyPreview();
 
+    private void HealthButton_Click(object sender, RoutedEventArgs e) => ToggleHealthPanel();
+
+    private void CloseHealthPanelButton_Click(object sender, RoutedEventArgs e)
+    {
+        HealthPanel.Visibility = Visibility.Collapsed;
+    }
+
     private async void UsageProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isApplyingSettings)
@@ -407,6 +414,7 @@ public partial class MainWindow : Window
         _lastLensPreviewImage = null;
         LensStateTextBlock.Text =
             $"Center {e.State.CenterPoint.X:0},{e.State.CenterPoint.Y:0} | Frame {e.State.Bounds.Width:0}x{e.State.Bounds.Height:0}";
+        UpdateHealthPanel();
         ScheduleAutoLensInspection();
     }
 
@@ -433,6 +441,7 @@ public partial class MainWindow : Window
         LensButtonTextBlock.Text = "Lens";
         LensStateTextBlock.Text = "Inactive";
         _autoLensTimer.Stop();
+        UpdateHealthPanel();
         SetStatus("Lens closed.");
     }
 
@@ -1663,9 +1672,13 @@ public partial class MainWindow : Window
         HeaderBorder.BorderBrush = borderColor;
         StatusBorder.Background = panelBackground;
         StatusBorder.BorderBrush = borderColor;
+        HealthPanel.Background = panelBackground;
+        HealthPanel.BorderBrush = borderColor;
         ResultsTabControl.Background = tabBackground;
         ResultsTabControl.Foreground = foreground;
         StatusTextBlock.Foreground = mutedText;
+        HealthSummaryTextBlock.Foreground = mutedText;
+        HealthPanelSummaryTextBlock.Foreground = mutedText;
         LogoImage.Source = Bitmap(light
             ? "/Julco.UI;component/Resources/julco-logo.png"
             : "/Julco.UI;component/Resources/julco-logo-dark.png");
@@ -2036,11 +2049,13 @@ public partial class MainWindow : Window
         if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             CaptureNotesPreviewTextBlock.Text = "No capture selected.";
+            UpdateHealthPanel();
             return;
         }
 
         var notes = LoadCaptureNotes(capture.DirectoryPath);
         CaptureNotesPreviewTextBlock.Text = notes.ShortSummary;
+        UpdateHealthPanel();
     }
 
     private void OpenSelectedCapture()
@@ -2392,6 +2407,7 @@ public partial class MainWindow : Window
         ExportReportButton.IsEnabled = !isBusy;
         IssueTrackerButton.IsEnabled = !isBusy;
         PrivacyPreviewButton.IsEnabled = !isBusy;
+        HealthButton.IsEnabled = !isBusy;
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
@@ -2407,6 +2423,201 @@ public partial class MainWindow : Window
     private void SetStatus(string message)
     {
         StatusTextBlock.Text = message;
+        UpdateHealthPanel();
+    }
+
+    private void ToggleHealthPanel()
+    {
+        if (HealthPanel.Visibility == Visibility.Visible)
+        {
+            HealthPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UpdateHealthPanel(forceOpen: true);
+    }
+
+    private void UpdateHealthPanel(bool forceOpen = false)
+    {
+        if (HealthItemsControl is null
+            || HealthSummaryTextBlock is null
+            || HealthPanelSummaryTextBlock is null)
+        {
+            return;
+        }
+
+        var items = BuildHealthStatusItems();
+        HealthItemsControl.ItemsSource = items;
+        var warningCount = items.Count(item => item.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase));
+        var okCount = items.Count - warningCount;
+        HealthSummaryTextBlock.Text = warningCount == 0
+            ? $"Health: OK ({okCount})"
+            : $"Health: {warningCount} warning(s)";
+        HealthPanelSummaryTextBlock.Text = warningCount == 0
+            ? "Julco is ready. Core workflow checks are green."
+            : "Review the warning items below before capturing or exporting evidence.";
+
+        if (forceOpen)
+        {
+            HealthPanel.Visibility = Visibility.Visible;
+        }
+    }
+
+    private IReadOnlyList<HealthStatusItem> BuildHealthStatusItems()
+    {
+        return new[]
+        {
+            BuildBrowserHealth(),
+            BuildPortHealth(),
+            BuildTabsHealth(),
+            BuildInspectionHealth(),
+            BuildLensHealth(),
+            BuildCaptureFolderHealth(),
+            BuildCaptureHistoryHealth(),
+            BuildPrivacyHealth(),
+            BuildShortcutHealth(),
+            BuildProfileHealth()
+        };
+    }
+
+    private HealthStatusItem BuildBrowserHealth()
+    {
+        return _activeBrowser is null
+            ? Warn("Browser", "Not started", "Open Chrome, Edge, Firefox, or Opera from Julco before inspecting.")
+            : Ok("Browser", _activeBrowser.Value.ToString(), $"{_activeBrowser} remote session is the active target family.");
+    }
+
+    private HealthStatusItem BuildPortHealth()
+    {
+        return TryReadPort(out var port)
+            ? Ok("Remote port", port.ToString(), $"{PortLabelTextBlock.Text} endpoint configured on localhost:{port}.")
+            : Warn("Remote port", "Invalid", "Port must be a number between 1 and 65535.");
+    }
+
+    private HealthStatusItem BuildTabsHealth()
+    {
+        var tabCount = TargetsComboBox?.Items.Count ?? 0;
+        if (tabCount <= 0)
+        {
+            return Warn("Inspectable tabs", "None", "Open browser tabs and press Tabs to refresh target discovery.");
+        }
+
+        var selected = TargetsComboBox?.SelectedItem is CdpTarget target
+            ? $"{target.Title} - {target.Url}"
+            : "No tab selected.";
+        return Ok("Inspectable tabs", tabCount.ToString(), selected);
+    }
+
+    private HealthStatusItem BuildInspectionHealth()
+    {
+        return _currentInspection is null
+            ? Warn("Inspection", "Idle", "Inspect a selector or use Lens to populate DOM, CSS, console, attributes, images, and issues.")
+            : Ok("Inspection", _currentInspection.TagName, $"{_currentInspection.Selector} on {GetSelectedTargetUrl()}");
+    }
+
+    private string GetSelectedTargetUrl()
+    {
+        return TargetsComboBox?.SelectedItem is CdpTarget target
+            ? target.Url
+            : "-";
+    }
+
+    private HealthStatusItem BuildLensHealth()
+    {
+        if (_lensWindow is null || _lastLensState is null)
+        {
+            return Warn("Lens", "Inactive", "Open Lens before capturing a framed evidence package.");
+        }
+
+        return Ok(
+            "Lens",
+            "Active",
+            $"Frame {_lastLensState.Bounds.Width:0}x{_lastLensState.Bounds.Height:0}, center {_lastLensState.CenterPoint.X:0},{_lastLensState.CenterPoint.Y:0}.");
+    }
+
+    private HealthStatusItem BuildCaptureFolderHealth()
+    {
+        try
+        {
+            var root = GetCaptureRootDirectory();
+            Directory.CreateDirectory(root);
+            return Ok("Capture folder", "Ready", root);
+        }
+        catch (Exception exception)
+        {
+            return Warn("Capture folder", "Blocked", exception.Message);
+        }
+    }
+
+    private HealthStatusItem BuildCaptureHistoryHealth()
+    {
+        var selected = GetSelectedCapture();
+        var detail = selected is null
+            ? $"{_captureFiles.Count} capture(s) loaded. No capture selected."
+            : $"{_filteredCaptureFiles.Count}/{_captureFiles.Count} visible. Selected: {selected.HistoryTitle}";
+        return _captureFiles.Count == 0
+            ? Warn("Capture history", "Empty", "Create a lens capture to start the evidence history.")
+            : Ok("Capture history", _captureFiles.Count.ToString(), detail);
+    }
+
+    private HealthStatusItem BuildPrivacyHealth()
+    {
+        var privacy = _settings.Privacy;
+        if (!privacy.RedactOnExport)
+        {
+            return Warn("Privacy", "Off", "Redaction is disabled for exports and issue handoff drafts.");
+        }
+
+        var screenshotPolicy = privacy.IncludeScreenshotsInSafeExports
+            ? "Safe exports may include unredacted screenshots."
+            : "Safe exports omit screenshots by default.";
+        return Ok("Privacy", "Protected", $"Redaction is enabled. {screenshotPolicy}");
+    }
+
+    private HealthStatusItem BuildShortcutHealth()
+    {
+        var global = CountEnabledShortcuts(_settings.Keyboard.GlobalShortcuts);
+        var local = CountEnabledShortcuts(_settings.Keyboard.LocalShortcuts);
+        if (!_settings.Keyboard.EnableGlobalShortcuts && !_settings.Keyboard.EnableLocalShortcuts)
+        {
+            return Warn("Shortcuts", "Off", "Global and local shortcuts are disabled in Settings.");
+        }
+
+        return Ok(
+            "Shortcuts",
+            $"{global}/{local}",
+            $"Global enabled: {_settings.Keyboard.EnableGlobalShortcuts}. Local enabled: {_settings.Keyboard.EnableLocalShortcuts}.");
+    }
+
+    private HealthStatusItem BuildProfileHealth()
+    {
+        if (_usageProfiles.Count == 0)
+        {
+            return Warn("Profile", "Loading", "Usage profiles are still being initialized.");
+        }
+
+        var profile = GetActiveUsageProfile();
+        return Ok("Profile", profile.DisplayName, profile.Guidance);
+    }
+
+    private static int CountEnabledShortcuts(IReadOnlyDictionary<string, string> shortcuts)
+    {
+        return shortcuts.Values.Count(value => HotkeyTextParser.Parse(value).IsEnabled);
+    }
+
+    private bool TryReadPort(out int port)
+    {
+        return int.TryParse(PortTextBox.Text, out port) && port is > 0 and <= 65535;
+    }
+
+    private static HealthStatusItem Ok(string name, string state, string detail)
+    {
+        return new HealthStatusItem(name, state, detail, "OK");
+    }
+
+    private static HealthStatusItem Warn(string name, string state, string detail)
+    {
+        return new HealthStatusItem(name, state, detail, "Warning");
     }
 
     private void OpenHelp()

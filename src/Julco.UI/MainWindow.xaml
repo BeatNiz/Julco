@@ -965,16 +965,118 @@
             </TabControl>
         </Grid>
 
+        <Border x:Name="HealthPanel"
+                Grid.Row="1"
+                Width="420"
+                MaxHeight="520"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,14,12"
+                Padding="14"
+                Background="{StaticResource PanelBackground}"
+                BorderBrush="{StaticResource BorderColor}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DockPanel>
+                    <TextBlock Text="System Health"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource PrimaryText}" />
+                    <Button Content="×"
+                            DockPanel.Dock="Right"
+                            Width="28"
+                            MinHeight="24"
+                            Padding="0"
+                            HorizontalAlignment="Right"
+                            Click="CloseHealthPanelButton_Click" />
+                </DockPanel>
+
+                <TextBlock x:Name="HealthPanelSummaryTextBlock"
+                           Grid.Row="1"
+                           Text="Julco health summary."
+                           Foreground="{StaticResource MutedText}"
+                           TextWrapping="Wrap"
+                           Margin="0,6,0,10" />
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="HealthItemsControl">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource InputBackground}"
+                                        BorderBrush="{StaticResource BorderColor}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="10"
+                                        Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource PrimaryText}" />
+                                            <TextBlock Text="{Binding Detail}"
+                                                       Foreground="{StaticResource MutedText}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,3,0,0" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding State}"
+                                                   Foreground="{StaticResource Accent}"
+                                                   FontWeight="SemiBold"
+                                                   Margin="10,0,0,0" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
         <Border x:Name="StatusBorder"
                 Grid.Row="2"
                 Background="{StaticResource PanelBackground}"
                 BorderBrush="{StaticResource BorderColor}"
                 BorderThickness="0,1,0,0">
-            <TextBlock x:Name="StatusTextBlock"
-                       Text="Ready"
-                       VerticalAlignment="Center"
-                       Margin="16,0"
-                       Foreground="{StaticResource MutedText}" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="StatusTextBlock"
+                           Text="Ready"
+                           VerticalAlignment="Center"
+                           Margin="16,0,8,0"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource MutedText}" />
+                <TextBlock x:Name="HealthSummaryTextBlock"
+                           Grid.Column="1"
+                           Text="Health: checking"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedText}"
+                           Margin="8,0" />
+                <Button x:Name="HealthButton"
+                        Grid.Column="2"
+                        Content="Health"
+                        MinHeight="24"
+                        Padding="10,2"
+                        Margin="0,3,12,3"
+                        ToolTip="Open Julco system health panel."
+                        Click="HealthButton_Click" />
+            </Grid>
         </Border>
     </Grid>
 </Window>
