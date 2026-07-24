@@ -13,6 +13,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="42" />
+            <RowDefinition Height="190" />
             <RowDefinition Height="150" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
@@ -25,6 +26,48 @@
         </Border>
 
         <Grid Grid.Row="1" Margin="12,10,12,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.25*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="DomSummaryTextBox"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     Background="#050608"
+                     Foreground="#F4F6F8"
+                     BorderBrush="#2A2F3A"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas"
+                     Padding="8" />
+
+            <DataGrid x:Name="ImportantAttributesGrid"
+                      Grid.Column="2"
+                      IsReadOnly="True"
+                      AutoGenerateColumns="False"
+                      HeadersVisibility="Column"
+                      Background="#050608"
+                      Foreground="#F4F6F8"
+                      BorderBrush="#2A2F3A"
+                      GridLinesVisibility="Horizontal">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Attribute"
+                                        Binding="{Binding Name}"
+                                        Width="110" />
+                    <DataGridTextColumn Header="Value"
+                                        Binding="{Binding Value}"
+                                        Width="*" />
+                    <DataGridTextColumn Header="Why"
+                                        Binding="{Binding Description}"
+                                        Width="1.1*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="12,4,12,6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
                 <ColumnDefinition Width="12" />
@@ -91,7 +134,7 @@
         </Grid>
 
         <RichTextBox x:Name="DomRichTextBox"
-                     Grid.Row="2"
+                     Grid.Row="3"
                      Margin="12"
                      IsReadOnly="True"
                      IsDocumentEnabled="True"

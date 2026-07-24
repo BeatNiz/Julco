@@ -538,17 +538,81 @@
                         Background="{StaticResource PanelBackground}"
                         Foreground="{StaticResource PrimaryText}">
                 <TabItem Header="DOM">
-                    <TextBox x:Name="DomTextBox"
-                             IsReadOnly="True"
-                             AcceptsReturn="True"
-                             AcceptsTab="True"
-                             TextWrapping="NoWrap"
-                             Background="{StaticResource InputBackground}"
-                             Foreground="{StaticResource PrimaryText}"
-                             BorderBrush="{StaticResource BorderColor}"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
-                             FontFamily="Consolas" />
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="1.15*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="DOM summary"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedText}"
+                                   Margin="8,6,8,4" />
+
+                        <Grid Grid.Row="1" Margin="8,0,8,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.35*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox x:Name="DomSummaryTextBox"
+                                     IsReadOnly="True"
+                                     AcceptsReturn="True"
+                                     TextWrapping="NoWrap"
+                                     Background="{StaticResource InputBackground}"
+                                     Foreground="{StaticResource PrimaryText}"
+                                     BorderBrush="{StaticResource BorderColor}"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas"
+                                     Padding="8" />
+
+                            <DataGrid x:Name="DomImportantAttributesGrid"
+                                      Grid.Column="2"
+                                      IsReadOnly="True"
+                                      AutoGenerateColumns="False"
+                                      HeadersVisibility="Column"
+                                      Background="{StaticResource InputBackground}"
+                                      Foreground="{StaticResource PrimaryText}"
+                                      BorderBrush="{StaticResource BorderColor}"
+                                      GridLinesVisibility="Horizontal">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Attribute"
+                                                        Binding="{Binding Name}"
+                                                        Width="120" />
+                                    <DataGridTextColumn Header="Value"
+                                                        Binding="{Binding Value}"
+                                                        Width="*" />
+                                    <DataGridTextColumn Header="Why it matters"
+                                                        Binding="{Binding Description}"
+                                                        Width="1.25*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+
+                        <TextBlock Grid.Row="2"
+                                   Text="Full HTML"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedText}"
+                                   Margin="8,0,8,4" />
+
+                        <TextBox x:Name="DomTextBox"
+                                 Grid.Row="3"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 AcceptsTab="True"
+                                 TextWrapping="NoWrap"
+                                 Background="{StaticResource InputBackground}"
+                                 Foreground="{StaticResource PrimaryText}"
+                                 BorderBrush="{StaticResource BorderColor}"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas"
+                                 Margin="8,0,8,8" />
+                    </Grid>
                 </TabItem>
                 <TabItem Header="Computed">
                     <TextBox x:Name="ComputedTextBox"

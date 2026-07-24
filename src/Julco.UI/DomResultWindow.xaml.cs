@@ -5,9 +5,17 @@ namespace Julco.UI;
 
 public partial class DomResultWindow : Window
 {
-    public DomResultWindow(string html)
+    public DomResultWindow(string html, string tagName = "", string selector = "")
     {
         InitializeComponent();
+        var attributes = DomFormatter.ExtractAttributes(html);
+        var attributeDictionary = attributes.ToDictionary(
+            attribute => attribute.Name,
+            attribute => attribute.Value,
+            StringComparer.OrdinalIgnoreCase);
+        var summary = DomSummaryBuilder.Build(tagName, selector, html, attributeDictionary);
+        DomSummaryTextBox.Text = DomSummaryBuilder.ToDisplayText(summary);
+        ImportantAttributesGrid.ItemsSource = summary.ImportantAttributes;
         AttributesListView.ItemsSource = DomFormatter.ExtractAttributes(html);
         DomRichTextBox.Document = DomSyntaxHighlighter.CreateDocument(DomFormatter.PrettyPrint(html));
     }

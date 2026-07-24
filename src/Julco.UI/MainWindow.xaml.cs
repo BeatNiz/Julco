@@ -401,6 +401,13 @@ public partial class MainWindow : Window
         ElementTextBlock.Text = $"{result.TagName}  |  {result.Selector}";
         SelectorTextBox.Text = result.Selector;
         UrlTextBlock.Text = target.Url;
+        var domSummary = DomSummaryBuilder.Build(
+            result.TagName,
+            result.Selector,
+            result.OuterHtml,
+            result.Attributes);
+        DomSummaryTextBox.Text = DomSummaryBuilder.ToDisplayText(domSummary);
+        DomImportantAttributesGrid.ItemsSource = domSummary.ImportantAttributes;
         DomTextBox.Text = DomFormatter.PrettyPrint(result.OuterHtml);
         ComputedTextBox.Text = BuildComputedCss(result);
         RulesTextBox.Text = string.Join(Environment.NewLine, result.MatchedCssRules);
@@ -846,7 +853,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        ToggleResultWindow("DOM", () => new DomResultWindow(_currentInspection.OuterHtml));
+        ToggleResultWindow(
+            "DOM",
+            () => new DomResultWindow(
+                _currentInspection.OuterHtml,
+                _currentInspection.TagName,
+                _currentInspection.Selector));
     }
 
     private void ShowResultWindow(string title, string content)
