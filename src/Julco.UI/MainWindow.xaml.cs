@@ -43,6 +43,8 @@ public partial class MainWindow : Window
     private bool _isCompactMode;
     private bool _isApplyingSettings;
     private bool _isSourceInitialized;
+    private bool _isLensFrozen;
+    private string _lastLensDetectedType = "-";
     private string? _lastLiveLensHistoryKey;
     private AppSettings _settings = AppSettings.Default;
     private IReadOnlyList<UsageProfileDefinition> _usageProfiles = Array.Empty<UsageProfileDefinition>();
@@ -400,6 +402,8 @@ public partial class MainWindow : Window
         _lensWindow.LensChanged += LensWindow_LensChanged;
         _lensWindow.InspectCenterRequested += LensWindow_InspectCenterRequested;
         _lensWindow.CaptureRequested += LensWindow_CaptureRequested;
+        _lensWindow.FreezeChanged += LensWindow_FreezeChanged;
+        _lensWindow.LockChanged += LensWindow_LockChanged;
         _lensWindow.Closed += LensWindow_Closed;
         _lensWindow.Show();
         PlaceLensNearMainWindow(_lensWindow);
@@ -413,17 +417,39 @@ public partial class MainWindow : Window
         _lastLensState = e.State;
         _lastLensPreviewImage = null;
         LensStateTextBlock.Text =
-            $"Center {e.State.CenterPoint.X:0},{e.State.CenterPoint.Y:0} | Frame {e.State.Bounds.Width:0}x{e.State.Bounds.Height:0}";
+            $"Center {e.State.CenterPoint.X:0},{e.State.CenterPoint.Y:0} | Frame {e.State.Bounds.Width:0}x{e.State.Bounds.Height:0} | {_lastLensDetectedType}";
         UpdateHealthPanel();
         ScheduleAutoLensInspection();
     }
 
-    private async void LensWindow_InspectCenterRequested(object? sender, LensFrameState state) => await InspectLensCenterAsync(state);
+    private async void LensWindow_InspectCenterRequested(object? sender, LensFrameState state) => await InspectLensCenterAsync(state, respectFreeze: false);
 
     private async void LensWindow_CaptureRequested(object? sender, LensFrameState state)
     {
         _lastLensState = state;
         await CaptureLensAsync();
+    }
+
+    private void LensWindow_FreezeChanged(object? sender, bool isFrozen)
+    {
+        _isLensFrozen = isFrozen;
+        if (isFrozen)
+        {
+            _autoLensTimer.Stop();
+            SetStatus("Lens frozen. Move/resize is still available, but live inspection is paused.");
+            return;
+        }
+
+        SetStatus("Lens live inspection resumed.");
+        ScheduleAutoLensInspection();
+    }
+
+    private void LensWindow_LockChanged(object? sender, bool isLocked)
+    {
+        SetStatus(isLocked
+            ? "Lens locked. Movement and resizing are disabled."
+            : "Lens unlocked. Movement and resizing are enabled.");
+        UpdateHealthPanel();
     }
 
     private void LensWindow_Closed(object? sender, EventArgs e)
@@ -433,10 +459,14 @@ public partial class MainWindow : Window
             _lensWindow.LensChanged -= LensWindow_LensChanged;
             _lensWindow.InspectCenterRequested -= LensWindow_InspectCenterRequested;
             _lensWindow.CaptureRequested -= LensWindow_CaptureRequested;
+            _lensWindow.FreezeChanged -= LensWindow_FreezeChanged;
+            _lensWindow.LockChanged -= LensWindow_LockChanged;
             _lensWindow.Closed -= LensWindow_Closed;
         }
 
         _lensWindow = null;
+        _isLensFrozen = false;
+        _lastLensDetectedType = "-";
         _lastLiveLensHistoryKey = null;
         LensButtonTextBlock.Text = "Lens";
         LensStateTextBlock.Text = "Inactive";
@@ -445,10 +475,16 @@ public partial class MainWindow : Window
         SetStatus("Lens closed.");
     }
 
-    private async Task InspectLensCenterAsync(LensFrameState state)
+    private async Task InspectLensCenterAsync(LensFrameState state, bool respectFreeze = true)
     {
         if (_isInspectingLens)
         {
+            return;
+        }
+
+        if (respectFreeze && _isLensFrozen)
+        {
+            SetStatus("Lens is frozen. Unfreeze to refresh live inspection.");
             return;
         }
 
@@ -468,6 +504,9 @@ public partial class MainWindow : Window
                 CancellationToken.None);
 
             ShowInspection(target, result);
+            _lastLensDetectedType = DetectLensContentType(result);
+            _lensWindow?.SetDetectedType(_lastLensDetectedType);
+            UpdateLensStateText(state);
             var historyKey = $"{result.TagName}|{result.Selector}";
             if (!string.Equals(_lastLiveLensHistoryKey, historyKey, StringComparison.Ordinal))
             {
@@ -586,6 +625,9 @@ public partial class MainWindow : Window
                 CancellationToken.None);
 
             ShowInspection(target, inspection);
+            _lastLensDetectedType = DetectLensContentType(inspection);
+            _lensWindow?.SetDetectedType(_lastLensDetectedType);
+            UpdateLensStateText(state);
 
             var captureRoot = GetCaptureRootDirectory();
             Directory.CreateDirectory(captureRoot);
@@ -724,6 +766,7 @@ public partial class MainWindow : Window
             new EvidenceElementContext(
                 inspection.TagName,
                 inspection.Selector,
+                DetectLensContentType(inspection),
                 inspection.Attributes,
                 inspection.Images.Count,
                 inspection.ConsoleMessages.Count),
@@ -775,6 +818,7 @@ public partial class MainWindow : Window
             $"- Page title: {NormalizeMarkdownLine(evidence.Page.Title)}",
             $"- URL: {NormalizeMarkdownLine(evidence.Page.Url)}",
             $"- Element: {evidence.Element.TagName}  {NormalizeMarkdownLine(evidence.Element.Selector)}",
+            $"- Detected type: {NormalizeMarkdownLine(evidence.Element.DetectedType)}",
             $"- Lens frame: {evidence.Frame.Width:0}x{evidence.Frame.Height:0} at {evidence.Frame.X:0},{evidence.Frame.Y:0}",
             $"- Center: {evidence.Frame.CenterX:0},{evidence.Frame.CenterY:0}",
             $"- Screen: {NormalizeMarkdownLine(evidence.Frame.ScreenName)} ({evidence.Frame.ScreenWidth}x{evidence.Frame.ScreenHeight})",
@@ -922,7 +966,7 @@ public partial class MainWindow : Window
 
     private void ScheduleAutoLensInspection()
     {
-        if (_lensWindow is null || _lastLensState is null)
+        if (_lensWindow is null || _lastLensState is null || _isLensFrozen)
         {
             return;
         }
@@ -1067,6 +1111,74 @@ public partial class MainWindow : Window
             height,
             bytes.Length,
             true);
+    }
+
+    private static string DetectLensContentType(SelectorInspectionResult inspection)
+    {
+        var tag = inspection.TagName.Trim().ToLowerInvariant();
+        var role = GetAttributeValue(inspection.Attributes, "role").ToLowerInvariant();
+        var type = GetAttributeValue(inspection.Attributes, "type").ToLowerInvariant();
+        var display = GetStyleValue(inspection.ComputedStyle, "display").ToLowerInvariant();
+        var visibility = GetStyleValue(inspection.ComputedStyle, "visibility").ToLowerInvariant();
+        var opacity = GetStyleValue(inspection.ComputedStyle, "opacity");
+        if (display == "none" || visibility == "hidden" || opacity == "0")
+        {
+            return "hidden";
+        }
+
+        if (tag is "img" or "picture" or "source" or "svg" or "canvas"
+            || inspection.Images.Any(image => image.IsLensFrame is false && image.Kind.Contains("img", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "image";
+        }
+
+        if (tag is "video" or "audio" or "iframe" or "embed" or "object")
+        {
+            return "media";
+        }
+
+        if (tag is "input" or "textarea" or "select" or "option" or "label"
+            || role is "textbox" or "combobox" or "checkbox" or "radio" or "switch")
+        {
+            return string.IsNullOrWhiteSpace(type) ? "form" : $"form:{type}";
+        }
+
+        if (tag is "button" or "a" or "summary"
+            || role is "button" or "link" or "menuitem" or "tab")
+        {
+            return "action";
+        }
+
+        if (tag is "p" or "span" or "strong" or "em" or "small" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6")
+        {
+            return "text";
+        }
+
+        if (display.Contains("flex", StringComparison.OrdinalIgnoreCase)
+            || display.Contains("grid", StringComparison.OrdinalIgnoreCase))
+        {
+            return "layout";
+        }
+
+        return tag is "div" or "section" or "article" or "main" or "nav" or "header" or "footer"
+            ? "container"
+            : tag;
+    }
+
+    private void UpdateLensStateText(LensFrameState state)
+    {
+        LensStateTextBlock.Text =
+            $"Center {state.CenterPoint.X:0},{state.CenterPoint.Y:0} | Frame {state.Bounds.Width:0}x{state.Bounds.Height:0} | {_lastLensDetectedType}";
+    }
+
+    private static string GetAttributeValue(IReadOnlyDictionary<string, string> attributes, string key)
+    {
+        return attributes.TryGetValue(key, out var value) ? value : string.Empty;
+    }
+
+    private static string GetStyleValue(IReadOnlyDictionary<string, string> styles, string key)
+    {
+        return styles.TryGetValue(key, out var value) ? value : string.Empty;
     }
 
     private void ToggleResultWindow(string kind, Func<Window> createWindow)
@@ -2531,8 +2643,8 @@ public partial class MainWindow : Window
 
         return Ok(
             "Lens",
-            "Active",
-            $"Frame {_lastLensState.Bounds.Width:0}x{_lastLensState.Bounds.Height:0}, center {_lastLensState.CenterPoint.X:0},{_lastLensState.CenterPoint.Y:0}.");
+            _isLensFrozen ? "Frozen" : _lensWindow.IsLocked ? "Locked" : "Active",
+            $"Frame {_lastLensState.Bounds.Width:0}x{_lastLensState.Bounds.Height:0}, center {_lastLensState.CenterPoint.X:0},{_lastLensState.CenterPoint.Y:0}. Type: {_lastLensDetectedType}.");
     }
 
     private HealthStatusItem BuildCaptureFolderHealth()

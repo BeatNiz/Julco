@@ -13,6 +13,7 @@ public partial class LensWindow : Window
     private const double MinimumCaptureWidth = 34;
     private const double MinimumCaptureHeight = 34;
     private bool _isPinned;
+    private bool _isFrozen;
     private bool _isResizing;
     private System.Windows.Point _resizeStartPoint;
     private double _resizeStartWidth;
@@ -33,8 +34,16 @@ public partial class LensWindow : Window
 
     public event EventHandler<LensFrameState>? CaptureRequested;
 
+    public event EventHandler<bool>? FreezeChanged;
+
+    public event EventHandler<bool>? LockChanged;
+
     public LensFrameState State { get; private set; } = LensFrameState.FromBounds(
         new ScreenRect(160, 140, 420, 260));
+
+    public bool IsFrozen => _isFrozen;
+
+    public bool IsLocked => _isPinned;
 
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -80,6 +89,7 @@ public partial class LensWindow : Window
         _isPinned = !_isPinned;
         ResizeMode = ResizeMode.NoResize;
         UpdateState();
+        LockChanged?.Invoke(this, _isPinned);
     }
 
     public void SetPinned(bool isPinned)
@@ -87,6 +97,12 @@ public partial class LensWindow : Window
         _isPinned = isPinned;
         ResizeMode = ResizeMode.NoResize;
         UpdateState();
+        LockChanged?.Invoke(this, _isPinned);
+    }
+
+    public void SetDetectedType(string detectedType)
+    {
+        TypeTextBlock.Text = $"type: {detectedType}";
     }
 
     public void InspectCenter()
@@ -99,6 +115,18 @@ public partial class LensWindow : Window
     {
         UpdateState();
         CaptureRequested?.Invoke(this, State);
+    }
+
+    private void FreezeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isFrozen = !_isFrozen;
+        UpdateModeButtons();
+        FreezeChanged?.Invoke(this, _isFrozen);
+    }
+
+    private void LockButton_Click(object sender, RoutedEventArgs e)
+    {
+        TogglePin();
     }
 
     private void ResizeHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -152,6 +180,7 @@ public partial class LensWindow : Window
         PositionTextBlock.Text =
             $"Center {State.CenterPoint.X:0},{State.CenterPoint.Y:0}  |  {State.Bounds.Width:0}x{State.Bounds.Height:0}";
         UpdateHeaderPlacement(bounds);
+        UpdateModeButtons();
 
         LensChanged?.Invoke(
             this,
@@ -159,6 +188,19 @@ public partial class LensWindow : Window
                 State,
                 _isPinned ? LensFrameChangeKind.Pinned : LensFrameChangeKind.Moved));
 
+    }
+
+    private void UpdateModeButtons()
+    {
+        FreezeButton.Background = _isFrozen
+            ? System.Windows.Media.Brushes.DarkSlateBlue
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(37, 49, 61));
+        FreezeButton.Content = _isFrozen ? "F*" : "F";
+        LockButton.Background = _isPinned
+            ? System.Windows.Media.Brushes.DarkSlateBlue
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(37, 49, 61));
+        LockButton.Content = _isPinned ? "L*" : "L";
+        ResizeHandle.Visibility = _isPinned ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void UpdateHeaderPlacement(ScreenRect bounds)

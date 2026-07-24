@@ -37,6 +37,7 @@ public sealed record EvidencePageContext(
 public sealed record EvidenceElementContext(
     string TagName,
     string Selector,
+    string DetectedType,
     IReadOnlyDictionary<string, string> Attributes,
     int ImageResourceCount,
     int ConsoleMessageCount);
