@@ -68,6 +68,18 @@
                         Padding="14"
                         Margin="0,0,0,12">
                     <StackPanel>
+                        <TextBlock Text="Keyboard Shortcuts" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource HelpText}"
+                                   Text="Global shortcuts work even while the browser has focus. Use Ctrl+Alt+Shift+L to open or close Lens, Ctrl+Alt+Shift+C to capture, Ctrl+Alt+Shift+Right to switch result tabs, Ctrl+Alt+Shift+D for DOM, Ctrl+Alt+Shift+S for CSS, and Ctrl+Alt+Shift+I for Images. When Julco itself has focus, the same actions also work with Ctrl+Shift plus the same final key." />
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{StaticResource PanelBackground}"
+                        BorderBrush="{StaticResource BorderColor}"
+                        BorderThickness="1"
+                        Padding="14"
+                        Margin="0,0,0,12">
+                    <StackPanel>
                         <TextBlock Text="Recommended Browser Ports" Style="{StaticResource SectionTitle}" />
                         <Grid>
                             <Grid.RowDefinitions>

@@ -2,11 +2,14 @@ using System.IO;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -20,6 +23,13 @@ namespace Julco.UI;
 
 public partial class MainWindow : Window
 {
+    private const int WmHotkey = 0x0312;
+    private const uint ModAlt = 0x0001;
+    private const uint ModControl = 0x0002;
+    private const uint ModShift = 0x0004;
+    private const uint ModWin = 0x0008;
+    private const uint ModNoRepeat = 0x4000;
+
     private readonly ChromiumBrowserLauncher _browserLauncher = new();
     private readonly CdpEndpointClient _endpointClient = new();
     private readonly FirefoxBidiEndpointClient _firefoxEndpointClient = new();
@@ -29,7 +39,10 @@ public partial class MainWindow : Window
     private readonly List<string> _history = new();
     private readonly List<CaptureFileRecord> _captureFiles = new();
     private readonly List<CaptureFileRecord> _filteredCaptureFiles = new();
+    private readonly Dictionary<int, HotkeyDefinition> _globalHotkeys = new();
+    private readonly List<string> _hotkeyRegistrationFailures = new();
     private readonly DispatcherTimer _autoLensTimer;
+    private HwndSource? _hotkeySource;
     private SelectorInspectionResult? _currentInspection;
     private LensWindow? _lensWindow;
     private LensFrameState? _lastLensState;
@@ -56,6 +69,9 @@ public partial class MainWindow : Window
         };
         _autoLensTimer.Tick += AutoLensTimer_Tick;
         Loaded += MainWindow_Loaded;
+        SourceInitialized += MainWindow_SourceInitialized;
+        Closing += MainWindow_Closing;
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
         StateChanged += MainWindow_StateChanged;
     }
 
@@ -95,6 +111,24 @@ public partial class MainWindow : Window
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
         MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
+    }
+
+    private void MainWindow_SourceInitialized(object? sender, EventArgs e)
+    {
+        RegisterGlobalHotkeys();
+    }
+
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        UnregisterGlobalHotkeys();
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (TryHandleLocalShortcut(e))
+        {
+            e.Handled = true;
+        }
     }
 
     private async void LaunchEdgeButton_Click(object sender, RoutedEventArgs e) => await LaunchBrowserAsync(BrowserKind.Edge);
@@ -1077,6 +1111,173 @@ public partial class MainWindow : Window
         _activeResultWindow = null;
         _activeResultKind = null;
     }
+
+    private void RegisterGlobalHotkeys()
+    {
+        if (_hotkeySource is not null)
+        {
+            return;
+        }
+
+        var handle = new WindowInteropHelper(this).Handle;
+        _hotkeySource = HwndSource.FromHwnd(handle);
+        _hotkeySource?.AddHook(WndProc);
+        _globalHotkeys.Clear();
+        _hotkeyRegistrationFailures.Clear();
+
+        foreach (var hotkey in BuildGlobalHotkeys())
+        {
+            _globalHotkeys[hotkey.Id] = hotkey;
+            if (!RegisterHotKey(handle, hotkey.Id, ToNativeModifiers(hotkey.Modifiers), (uint)KeyInterop.VirtualKeyFromKey(hotkey.Key)))
+            {
+                _hotkeyRegistrationFailures.Add(hotkey.DisplayText);
+            }
+        }
+
+        if (_hotkeyRegistrationFailures.Count == 0)
+        {
+            SetStatus("Global shortcuts ready: Ctrl+Alt+Shift+L lens, C capture, Right tab, D DOM, S CSS, I images.");
+            return;
+        }
+
+        SetStatus($"Some global shortcuts are already in use: {string.Join(", ", _hotkeyRegistrationFailures)}.");
+    }
+
+    private void UnregisterGlobalHotkeys()
+    {
+        if (_hotkeySource is null)
+        {
+            return;
+        }
+
+        var handle = new WindowInteropHelper(this).Handle;
+        foreach (var hotkey in _globalHotkeys.Values)
+        {
+            UnregisterHotKey(handle, hotkey.Id);
+        }
+
+        _hotkeySource.RemoveHook(WndProc);
+        _hotkeySource = null;
+        _globalHotkeys.Clear();
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == WmHotkey && _globalHotkeys.TryGetValue(wParam.ToInt32(), out var hotkey))
+        {
+            handled = true;
+            RunHotkeyAction(hotkey);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private bool TryHandleLocalShortcut(System.Windows.Input.KeyEventArgs e)
+    {
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var modifiers = Keyboard.Modifiers;
+        var hotkey = BuildLocalHotkeys().FirstOrDefault(item =>
+            item.Key == key && item.Modifiers == modifiers);
+        if (hotkey is null)
+        {
+            return false;
+        }
+
+        RunHotkeyAction(hotkey);
+        return true;
+    }
+
+    private void RunHotkeyAction(HotkeyDefinition hotkey)
+    {
+        try
+        {
+            hotkey.Action();
+            SetStatus($"Shortcut: {hotkey.Name}.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Shortcut failed ({hotkey.Name}): {exception.Message}");
+        }
+    }
+
+    private IReadOnlyList<HotkeyDefinition> BuildGlobalHotkeys()
+    {
+        const ModifierKeys modifiers = ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift;
+        return new[]
+        {
+            new HotkeyDefinition(1001, "Toggle lens", modifiers, Key.L, "Ctrl+Alt+Shift+L", ToggleLens),
+            new HotkeyDefinition(1002, "Capture lens", modifiers, Key.C, "Ctrl+Alt+Shift+C", () => _ = CaptureLensAsync()),
+            new HotkeyDefinition(1003, "Next result tab", modifiers, Key.Right, "Ctrl+Alt+Shift+Right", SelectNextResultTab),
+            new HotkeyDefinition(1004, "Open DOM", modifiers, Key.D, "Ctrl+Alt+Shift+D", ShowDomWindow),
+            new HotkeyDefinition(1005, "Open CSS", modifiers, Key.S, "Ctrl+Alt+Shift+S", ShowCssWindow),
+            new HotkeyDefinition(1006, "Open images", modifiers, Key.I, "Ctrl+Alt+Shift+I", () => _ = ShowImagesWindowAsync())
+        };
+    }
+
+    private IReadOnlyList<HotkeyDefinition> BuildLocalHotkeys()
+    {
+        const ModifierKeys modifiers = ModifierKeys.Control | ModifierKeys.Shift;
+        return new[]
+        {
+            new HotkeyDefinition(2001, "Toggle lens", modifiers, Key.L, "Ctrl+Shift+L", ToggleLens),
+            new HotkeyDefinition(2002, "Capture lens", modifiers, Key.C, "Ctrl+Shift+C", () => _ = CaptureLensAsync()),
+            new HotkeyDefinition(2003, "Next result tab", modifiers, Key.Tab, "Ctrl+Shift+Tab", SelectNextResultTab),
+            new HotkeyDefinition(2004, "Open DOM", modifiers, Key.D, "Ctrl+Shift+D", ShowDomWindow),
+            new HotkeyDefinition(2005, "Open CSS", modifiers, Key.S, "Ctrl+Shift+S", ShowCssWindow),
+            new HotkeyDefinition(2006, "Open images", modifiers, Key.I, "Ctrl+Shift+I", () => _ = ShowImagesWindowAsync())
+        };
+    }
+
+    private void SelectNextResultTab()
+    {
+        if (ResultsTabControl.Items.Count == 0)
+        {
+            return;
+        }
+
+        var nextIndex = ResultsTabControl.SelectedIndex < 0
+            ? 0
+            : (ResultsTabControl.SelectedIndex + 1) % ResultsTabControl.Items.Count;
+        ResultsTabControl.SelectedIndex = nextIndex;
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+    }
+
+    private static uint ToNativeModifiers(ModifierKeys modifiers)
+    {
+        uint value = ModNoRepeat;
+        if (modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            value |= ModAlt;
+        }
+
+        if (modifiers.HasFlag(ModifierKeys.Control))
+        {
+            value |= ModControl;
+        }
+
+        if (modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            value |= ModShift;
+        }
+
+        if (modifiers.HasFlag(ModifierKeys.Windows))
+        {
+            value |= ModWin;
+        }
+
+        return value;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     private void PlaceResultWindow(Window window)
     {
@@ -2200,6 +2401,14 @@ public partial class MainWindow : Window
         string Guidance,
         IReadOnlyList<string> TabPriority,
         IReadOnlyList<string> PrimaryActions);
+
+    private sealed record HotkeyDefinition(
+        int Id,
+        string Name,
+        ModifierKeys Modifiers,
+        Key Key,
+        string DisplayText,
+        Action Action);
 
     private sealed record CaptureManifest(
         DateTimeOffset CreatedAt,
