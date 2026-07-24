@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Julco Settings"
         Width="430"
-        Height="360"
+        Height="560"
         MinWidth="390"
-        MinHeight="370"
+        MinHeight="520"
         WindowStartupLocation="CenterOwner"
         Background="#101217"
         Foreground="#F4F6F8"
@@ -57,8 +57,11 @@
                        Margin="0,4,0,16" />
         </StackPanel>
 
-        <Grid Grid.Row="1">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <Grid>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -102,7 +105,37 @@
                       Grid.ColumnSpan="2"
                       Content="Keep result windows on top"
                       Margin="0,14,0,0" />
+
+            <TextBlock Grid.Row="7"
+                       Grid.Column="0"
+                       Text="Privacy"
+                       VerticalAlignment="Top"
+                       Foreground="{StaticResource MutedText}"
+                       Margin="0,18,0,0" />
+            <StackPanel Grid.Row="7"
+                        Grid.Column="1"
+                        Grid.ColumnSpan="2"
+                        Margin="0,14,0,0">
+                <CheckBox x:Name="RedactOnExportCheckBox"
+                          Content="Redact sensitive data before exports and handoff drafts" />
+                <CheckBox x:Name="RedactEmailsCheckBox"
+                          Content="Emails"
+                          Margin="0,8,0,0" />
+                <CheckBox x:Name="RedactTokensCheckBox"
+                          Content="Tokens, API keys, secrets, passwords, Authorization headers"
+                          Margin="0,8,0,0" />
+                <CheckBox x:Name="RedactCookiesCheckBox"
+                          Content="Cookies and session identifiers"
+                          Margin="0,8,0,0" />
+                <CheckBox x:Name="RedactPrivateUrlsCheckBox"
+                          Content="Private URL paths, query strings, fragments, and credentials"
+                          Margin="0,8,0,0" />
+                <CheckBox x:Name="RedactSelectedTextCheckBox"
+                          Content="Visible text inside exported DOM/HTML"
+                          Margin="0,8,0,0" />
+            </StackPanel>
         </Grid>
+        </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button Content="Cancel" Click="CancelButton_Click" Margin="0,0,8,0" />

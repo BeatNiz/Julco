@@ -17,6 +17,7 @@ using Julco.Configuration;
 using Julco.Capture;
 using Julco.Cdp;
 using Julco.Core.Configuration;
+using Julco.Core.Privacy;
 using Forms = System.Windows.Forms;
 
 namespace Julco.UI;
@@ -217,8 +218,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        System.Windows.Clipboard.SetText(_currentInspection.OuterHtml);
-        SetStatus("HTML copied.");
+        System.Windows.Clipboard.SetText(RedactExportHtml(_currentInspection.OuterHtml));
+        SetStatus(_settings.Privacy.RedactOnExport ? "HTML copied with privacy redaction." : "HTML copied.");
     }
 
     private void CopyCssButton_Click(object sender, RoutedEventArgs e)
@@ -229,8 +230,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        System.Windows.Clipboard.SetText(BuildComputedCss(_currentInspection));
-        SetStatus("Computed CSS copied.");
+        System.Windows.Clipboard.SetText(RedactExportText(BuildComputedCss(_currentInspection)));
+        SetStatus(_settings.Privacy.RedactOnExport ? "Computed CSS copied with privacy redaction." : "Computed CSS copied.");
     }
 
     private void ExportJsonButton_Click(object sender, RoutedEventArgs e)
@@ -257,7 +258,7 @@ public partial class MainWindow : Window
             _currentInspection,
             new JsonSerializerOptions { WriteIndented = true });
 
-        File.WriteAllText(dialog.FileName, json);
+        File.WriteAllText(dialog.FileName, RedactExportText(json));
         SetStatus($"Exported: {dialog.FileName}");
     }
 
@@ -584,27 +585,34 @@ public partial class MainWindow : Window
             var screenshotBytes = await CaptureRegionAsync(state, screenshotPath);
             _lastLensPreviewImage = CreateLensPreviewImage(state, screenshotBytes);
             var evidenceImages = BuildImagesWithLensPreview(inspection.Images);
+            var commonIssues = CommonIssueDetector.Detect(inspection);
 
             var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+            var sanitizedInspectionJson = RedactExportText(JsonSerializer.Serialize(inspection, jsonOptions));
+            var sanitizedOuterHtml = RedactExportHtml(inspection.OuterHtml);
+            var sanitizedComputedCss = RedactExportText(BuildComputedCss(inspection));
+            var sanitizedConsole = RedactExportText(string.Join(Environment.NewLine, inspection.ConsoleMessages));
+            var sanitizedAttributes = RedactExportText(string.Join(
+                Environment.NewLine,
+                inspection.Attributes.Select(item => $"{item.Key}=\"{item.Value}\"")));
+            var sanitizedImagesJson = RedactExportText(JsonSerializer.Serialize(evidenceImages, jsonOptions));
+            var sanitizedCommonIssues = RedactExportText(CommonIssueDetector.BuildReport(commonIssues));
             File.WriteAllText(
                 Path.Combine(captureDirectory, "inspection.json"),
-                JsonSerializer.Serialize(inspection, jsonOptions));
-            File.WriteAllText(Path.Combine(captureDirectory, "dom.html"), inspection.OuterHtml);
-            File.WriteAllText(Path.Combine(captureDirectory, "computed.css"), BuildComputedCss(inspection));
-            File.WriteAllText(Path.Combine(captureDirectory, "console.txt"), string.Join(Environment.NewLine, inspection.ConsoleMessages));
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "attributes.txt"),
-                string.Join(Environment.NewLine, inspection.Attributes.Select(item => $"{item.Key}=\"{item.Value}\"")));
+                sanitizedInspectionJson);
+            File.WriteAllText(Path.Combine(captureDirectory, "dom.html"), sanitizedOuterHtml);
+            File.WriteAllText(Path.Combine(captureDirectory, "computed.css"), sanitizedComputedCss);
+            File.WriteAllText(Path.Combine(captureDirectory, "console.txt"), sanitizedConsole);
+            File.WriteAllText(Path.Combine(captureDirectory, "attributes.txt"), sanitizedAttributes);
             File.WriteAllText(
                 Path.Combine(captureDirectory, "image-resources.json"),
-                JsonSerializer.Serialize(evidenceImages, jsonOptions));
-            var commonIssues = CommonIssueDetector.Detect(inspection);
+                sanitizedImagesJson);
             File.WriteAllText(
                 Path.Combine(captureDirectory, "common-issues.json"),
-                JsonSerializer.Serialize(commonIssues, jsonOptions));
+                RedactExportText(JsonSerializer.Serialize(commonIssues, jsonOptions)));
             File.WriteAllText(
                 Path.Combine(captureDirectory, "common-issues.md"),
-                CommonIssueDetector.BuildReport(commonIssues));
+                sanitizedCommonIssues);
 
             var evidence = BuildEvidencePackage(
                 target,
@@ -621,10 +629,10 @@ public partial class MainWindow : Window
             SaveCaptureNotes(captureDirectory, notes);
             File.WriteAllText(
                 Path.Combine(captureDirectory, "evidence.json"),
-                JsonSerializer.Serialize(evidence, jsonOptions));
+                RedactExportText(JsonSerializer.Serialize(evidence, jsonOptions)));
             File.WriteAllText(
                 Path.Combine(captureDirectory, "evidence-summary.md"),
-                BuildEvidenceMarkdown(evidence));
+                RedactExportText(BuildEvidenceMarkdown(evidence)));
 
             var manifest = new CaptureManifest(
                 DateTimeOffset.Now,
@@ -641,7 +649,7 @@ public partial class MainWindow : Window
 
             File.WriteAllText(
                 Path.Combine(captureDirectory, "manifest.json"),
-                JsonSerializer.Serialize(manifest, jsonOptions));
+                RedactExportText(JsonSerializer.Serialize(manifest, jsonOptions)));
 
             LoadCaptures();
             SelectCapture(captureDirectory);
@@ -812,6 +820,36 @@ public partial class MainWindow : Window
         return string.IsNullOrWhiteSpace(evidence.Notes) ? "_No notes added._" : evidence.Notes;
     }
 
+    private PrivacyRedactorOptions GetPrivacyOptions()
+    {
+        return PrivacyRedactorOptions.FromSettings(_settings.Privacy ?? PrivacySettings.Default);
+    }
+
+    private string RedactExportText(string? value)
+    {
+        return PrivacyRedactor.RedactText(value, GetPrivacyOptions());
+    }
+
+    private string RedactExportHtml(string? value)
+    {
+        return PrivacyRedactor.RedactHtml(value, GetPrivacyOptions());
+    }
+
+    private CaptureNotes RedactCaptureNotes(CaptureNotes notes)
+    {
+        var options = GetPrivacyOptions();
+        if (!options.Enabled)
+        {
+            return notes;
+        }
+
+        return notes with
+        {
+            Observation = PrivacyRedactor.RedactText(notes.Observation, options),
+            Tags = PrivacyRedactor.RedactText(notes.Tags, options)
+        };
+    }
+
     private static string NormalizeMarkdownLine(string? value)
     {
         return string.IsNullOrWhiteSpace(value)
@@ -869,15 +907,16 @@ public partial class MainWindow : Window
             .Trim();
     }
 
-    private static void SaveCaptureNotes(string captureDirectory, CaptureNotes notes)
+    private void SaveCaptureNotes(string captureDirectory, CaptureNotes notes)
     {
+        var sanitizedNotes = RedactCaptureNotes(notes);
         var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
         File.WriteAllText(
             Path.Combine(captureDirectory, "capture-notes.json"),
-            JsonSerializer.Serialize(notes, jsonOptions));
+            JsonSerializer.Serialize(sanitizedNotes, jsonOptions));
         File.WriteAllText(
             Path.Combine(captureDirectory, "notes.md"),
-            notes.ToMarkdown());
+            sanitizedNotes.ToMarkdown());
     }
 
     private async Task<byte[]> CaptureRegionAsync(LensFrameState state, string screenshotPath)
@@ -1010,7 +1049,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var window = new ImageResourcesWindow(images)
+        var window = new ImageResourcesWindow(images, GetPrivacyOptions())
         {
             Owner = this,
             Topmost = _settings.Ui.KeepResultWindowsTopmost
@@ -1530,6 +1569,7 @@ public partial class MainWindow : Window
             Capture = settings.Capture ?? CaptureSettings.Default,
             Export = settings.Export ?? ExportSettings.Default,
             History = settings.History ?? HistorySettings.Default,
+            Privacy = settings.Privacy ?? PrivacySettings.Default,
             Ui = settings.Ui ?? UiSettings.Default
         };
     }
@@ -2201,7 +2241,8 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, "Building polished capture report...");
-            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName);
+            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName)
+                .Redacted(GetPrivacyOptions());
             var reportDirectory = Path.Combine(capture.DirectoryPath, "report");
             Directory.CreateDirectory(reportDirectory);
 
@@ -2241,7 +2282,8 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, "Building issue tracker drafts...");
-            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName);
+            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName)
+                .Redacted(GetPrivacyOptions());
             var outputDirectory = Path.Combine(capture.DirectoryPath, "issue-trackers");
             Directory.CreateDirectory(outputDirectory);
 
@@ -2545,6 +2587,40 @@ public partial class MainWindow : Window
                 ReadText(ResolvePath(captureDirectory, evidence?.Files.Attributes ?? "attributes.txt")),
                 ReadText(Path.Combine(captureDirectory, "common-issues.md")),
                 images);
+        }
+
+        public CaptureReport Redacted(PrivacyRedactorOptions options)
+        {
+            if (!options.Enabled)
+            {
+                return this;
+            }
+
+            return this with
+            {
+                Title = PrivacyRedactor.RedactText(Title, options),
+                Browser = PrivacyRedactor.RedactText(Browser, options),
+                TargetType = PrivacyRedactor.RedactText(TargetType, options),
+                PageUrl = PrivacyRedactor.RedactText(PageUrl, options),
+                PageTitle = PrivacyRedactor.RedactText(PageTitle, options),
+                TagName = PrivacyRedactor.RedactText(TagName, options),
+                Selector = PrivacyRedactor.RedactText(Selector, options),
+                Notes = Notes with
+                {
+                    Observation = PrivacyRedactor.RedactText(Notes.Observation, options),
+                    Tags = PrivacyRedactor.RedactText(Notes.Tags, options)
+                },
+                Dom = PrivacyRedactor.RedactHtml(Dom, options),
+                ComputedCss = PrivacyRedactor.RedactText(ComputedCss, options),
+                Console = PrivacyRedactor.RedactText(Console, options),
+                Attributes = PrivacyRedactor.RedactText(Attributes, options),
+                CommonIssues = PrivacyRedactor.RedactText(CommonIssues, options),
+                Images = Images.Select(image => image with
+                {
+                    Url = PrivacyRedactor.RedactText(image.Url, options),
+                    Alt = PrivacyRedactor.RedactText(image.Alt, options)
+                }).ToArray()
+            };
         }
 
         public string BuildMarkdown()
@@ -3015,7 +3091,7 @@ public partial class MainWindow : Window
 
         private static string RelativeEvidencePath(CaptureReport report, string relativePath)
         {
-            return Path.Combine(report.CaptureDirectory, relativePath);
+            return relativePath.Replace('\\', '/');
         }
 
         private static string Shorten(string? value, int maxLength)

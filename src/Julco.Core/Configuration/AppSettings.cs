@@ -6,6 +6,7 @@ public sealed record AppSettings(
     CaptureSettings Capture,
     ExportSettings Export,
     HistorySettings History,
+    PrivacySettings Privacy,
     UiSettings Ui)
 {
     public static AppSettings Default { get; } = new(
@@ -14,5 +15,6 @@ public sealed record AppSettings(
         CaptureSettings.Default,
         ExportSettings.Default,
         HistorySettings.Default,
+        PrivacySettings.Default,
         UiSettings.Default);
 }

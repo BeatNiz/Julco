@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using Julco.Cdp;
+using Julco.Core.Privacy;
 
 namespace Julco.UI;
 
@@ -12,13 +13,15 @@ public partial class ImageResourcesWindow : Window
 {
     private static readonly HttpClient HttpClient = new();
     private IReadOnlyList<WebImageResource> _images;
+    private readonly PrivacyRedactorOptions _privacyOptions;
     private WebImageResource? _selectedImage;
     private byte[]? _selectedBytes;
     private BitmapImage? _selectedBitmap;
 
-    public ImageResourcesWindow(IReadOnlyList<WebImageResource> images)
+    public ImageResourcesWindow(IReadOnlyList<WebImageResource> images, PrivacyRedactorOptions? privacyOptions = null)
     {
         InitializeComponent();
+        _privacyOptions = privacyOptions ?? new PrivacyRedactorOptions(false, false, false, false, false, false);
         _images = images;
         SetImages(images);
     }
@@ -100,8 +103,8 @@ public partial class ImageResourcesWindow : Window
             return;
         }
 
-        System.Windows.Clipboard.SetText(_selectedImage.Url);
-        DetailsTextBlock.Text = "Image URL copied.";
+        System.Windows.Clipboard.SetText(Redact(_selectedImage.Url));
+        DetailsTextBlock.Text = _privacyOptions.Enabled ? "Image URL copied with privacy redaction." : "Image URL copied.";
     }
 
     private void CopyDetailsButton_Click(object sender, RoutedEventArgs e)
@@ -171,7 +174,7 @@ public partial class ImageResourcesWindow : Window
         }
     }
 
-    private static IReadOnlyList<ImageMetadataRow> BuildMetadata(
+    private IReadOnlyList<ImageMetadataRow> BuildMetadata(
         WebImageResource image,
         long? loadedByteSize,
         BitmapImage? bitmap)
@@ -192,8 +195,8 @@ public partial class ImageResourcesWindow : Window
             new ImageMetadataRow("Natural size", naturalWidth > 0 && naturalHeight > 0 ? $"{naturalWidth} x {naturalHeight}" : "Unknown"),
             new ImageMetadataRow("Displayed size", image.DisplayedSizeText),
             new ImageMetadataRow("File weight", byteSize.HasValue ? FormatBytes(byteSize.Value) : "Unknown"),
-            new ImageMetadataRow("Alt / label", string.IsNullOrWhiteSpace(image.Alt) ? "-" : image.Alt),
-            new ImageMetadataRow("URL", image.Url)
+            new ImageMetadataRow("Alt / label", string.IsNullOrWhiteSpace(image.Alt) ? "-" : Redact(image.Alt)),
+            new ImageMetadataRow("URL", Redact(image.Url))
         };
     }
 
@@ -207,11 +210,16 @@ public partial class ImageResourcesWindow : Window
         return $"{image.Kind} | {image.Format} | natural {natural} | displayed {image.DisplayedSizeText} | {weight}";
     }
 
-    private static string BuildDetailsBlock(WebImageResource image, long? byteSize, BitmapImage? bitmap)
+    private string BuildDetailsBlock(WebImageResource image, long? byteSize, BitmapImage? bitmap)
     {
         return string.Join(
             Environment.NewLine,
             BuildMetadata(image, byteSize, bitmap).Select(row => $"{row.Field}: {row.Value}"));
+    }
+
+    private string Redact(string value)
+    {
+        return PrivacyRedactor.RedactText(value, _privacyOptions);
     }
 
     private static string FormatBytes(long bytes)

@@ -21,6 +21,12 @@ public partial class SettingsWindow : Window
         ThemeComboBox.ItemsSource = Enum.GetValues<ThemeMode>();
         ThemeComboBox.SelectedItem = settings.Theme;
         TopmostCheckBox.IsChecked = settings.Ui.KeepResultWindowsTopmost;
+        RedactOnExportCheckBox.IsChecked = settings.Privacy.RedactOnExport;
+        RedactEmailsCheckBox.IsChecked = settings.Privacy.RedactEmails;
+        RedactTokensCheckBox.IsChecked = settings.Privacy.RedactTokens;
+        RedactCookiesCheckBox.IsChecked = settings.Privacy.RedactCookies;
+        RedactPrivateUrlsCheckBox.IsChecked = settings.Privacy.RedactPrivateUrls;
+        RedactSelectedTextCheckBox.IsChecked = settings.Privacy.RedactSelectedText;
         ApplyTheme(settings.Theme);
     }
 
@@ -87,6 +93,15 @@ public partial class SettingsWindow : Window
             History = Settings.History with
             {
                 MaxEntries = historyMax
+            },
+            Privacy = Settings.Privacy with
+            {
+                RedactOnExport = RedactOnExportCheckBox.IsChecked == true,
+                RedactEmails = RedactEmailsCheckBox.IsChecked == true,
+                RedactTokens = RedactTokensCheckBox.IsChecked == true,
+                RedactCookies = RedactCookiesCheckBox.IsChecked == true,
+                RedactPrivateUrls = RedactPrivateUrlsCheckBox.IsChecked == true,
+                RedactSelectedText = RedactSelectedTextCheckBox.IsChecked == true
             },
             Ui = Settings.Ui with
             {
