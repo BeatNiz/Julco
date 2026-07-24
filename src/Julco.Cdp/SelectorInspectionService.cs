@@ -222,6 +222,10 @@ public sealed class SelectorInspectionService
                         alt: alt || imageElement?.getAttribute?.("alt") || imageElement?.getAttribute?.("aria-label") || "",
                         width: Math.round(imageElement?.naturalWidth || imageElement?.videoWidth || imageElement?.clientWidth || 0),
                         height: Math.round(imageElement?.naturalHeight || imageElement?.videoHeight || imageElement?.clientHeight || 0),
+                        naturalWidth: Math.round(imageElement?.naturalWidth || imageElement?.videoWidth || 0),
+                        naturalHeight: Math.round(imageElement?.naturalHeight || imageElement?.videoHeight || 0),
+                        displayedWidth: Math.round(imageElement?.getBoundingClientRect?.().width || imageElement?.clientWidth || 0),
+                        displayedHeight: Math.round(imageElement?.getBoundingClientRect?.().height || imageElement?.clientHeight || 0),
                         isAnimated: format === "gif" || format === "apng" || format === "webp",
                         priority: scoreImageElement(imageElement)
                     };
@@ -421,7 +425,13 @@ public sealed class SelectorInspectionService
             GetString(element, "alt"),
             GetInt(element, "width"),
             GetInt(element, "height"),
-            element.TryGetProperty("isAnimated", out var animated) && animated.ValueKind == JsonValueKind.True);
+            element.TryGetProperty("isAnimated", out var animated) && animated.ValueKind == JsonValueKind.True,
+            GetInt(element, "naturalWidth"),
+            GetInt(element, "naturalHeight"),
+            GetInt(element, "displayedWidth"),
+            GetInt(element, "displayedHeight"),
+            GetLong(element, "byteSize"),
+            element.TryGetProperty("isLensFrame", out var lensFrame) && lensFrame.ValueKind == JsonValueKind.True);
     }
 
     private static IReadOnlyList<WebImageResource> ExtractImagesFromHtml(string html)
@@ -464,6 +474,13 @@ public sealed class SelectorInspectionService
     private static int GetInt(JsonElement element, string property)
     {
         return element.TryGetProperty(property, out var value) && value.TryGetInt32(out var result)
+            ? result
+            : 0;
+    }
+
+    private static long GetLong(JsonElement element, string property)
+    {
+        return element.TryGetProperty(property, out var value) && value.TryGetInt64(out var result)
             ? result
             : 0;
     }

@@ -7,17 +7,45 @@ public sealed record WebImageResource(
     string Alt,
     int Width,
     int Height,
-    bool IsAnimated)
+    bool IsAnimated,
+    int NaturalWidth = 0,
+    int NaturalHeight = 0,
+    int DisplayedWidth = 0,
+    int DisplayedHeight = 0,
+    long ByteSize = 0,
+    bool IsLensFrame = false)
 {
     public string DisplayName
     {
         get
         {
-            var label = string.IsNullOrWhiteSpace(Alt) ? Kind : Alt;
-            var size = Width > 0 && Height > 0 ? $"{Width}x{Height}" : "unknown size";
-            return $"{label} | {Format} | {size}";
+            var label = IsLensFrame
+                ? "Lens frame"
+                : string.IsNullOrWhiteSpace(Alt) ? Kind : Alt;
+            var natural = NaturalWidth > 0 && NaturalHeight > 0
+                ? $"{NaturalWidth}x{NaturalHeight}"
+                : Width > 0 && Height > 0 ? $"{Width}x{Height}" : "unknown";
+            var displayed = DisplayedWidth > 0 && DisplayedHeight > 0
+                ? $"shown {DisplayedWidth}x{DisplayedHeight}"
+                : "shown unknown";
+            var size = ByteSize > 0 ? $" | {ByteSize / 1024d:0.#} KB" : string.Empty;
+            return $"{label} | {Format} | natural {natural} | {displayed}{size}";
         }
     }
+
+    public string NaturalSizeText => NaturalWidth > 0 && NaturalHeight > 0
+        ? $"{NaturalWidth} x {NaturalHeight}"
+        : Width > 0 && Height > 0 ? $"{Width} x {Height}" : "Unknown";
+
+    public string DisplayedSizeText => DisplayedWidth > 0 && DisplayedHeight > 0
+        ? $"{DisplayedWidth} x {DisplayedHeight}"
+        : "Unknown";
+
+    public string ByteSizeText => ByteSize > 0
+        ? ByteSize >= 1024 * 1024
+            ? $"{ByteSize / 1024d / 1024d:0.##} MB"
+            : $"{ByteSize / 1024d:0.#} KB"
+        : "Unknown";
 }
 
 public sealed record SelectorInspectionResult(

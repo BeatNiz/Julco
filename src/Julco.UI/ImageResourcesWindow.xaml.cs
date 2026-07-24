@@ -12,6 +12,9 @@ public partial class ImageResourcesWindow : Window
 {
     private static readonly HttpClient HttpClient = new();
     private IReadOnlyList<WebImageResource> _images;
+    private WebImageResource? _selectedImage;
+    private byte[]? _selectedBytes;
+    private BitmapImage? _selectedBitmap;
 
     public ImageResourcesWindow(IReadOnlyList<WebImageResource> images)
     {
@@ -22,7 +25,10 @@ public partial class ImageResourcesWindow : Window
 
     public void SetImages(IReadOnlyList<WebImageResource> images)
     {
-        _images = images;
+        _images = images
+            .OrderByDescending(image => image.IsLensFrame)
+            .ThenBy(image => image.Kind)
+            .ToArray();
         ImagesListBox.ItemsSource = null;
         ImagesListBox.ItemsSource = _images;
         CountTextBlock.Text = $"Images ({_images.Count})";
@@ -30,6 +36,7 @@ public partial class ImageResourcesWindow : Window
         if (_images.Count == 0)
         {
             PreviewImage.Source = null;
+            MetadataGrid.ItemsSource = null;
             PreviewPlaceholderTextBlock.Text = "No image resources detected in the current inspection.";
             PreviewPlaceholderTextBlock.Visibility = Visibility.Visible;
             DetailsTextBlock.Text = "Move the lens over an element that contains an image or inspect a selector with image resources.";
@@ -46,7 +53,11 @@ public partial class ImageResourcesWindow : Window
             return;
         }
 
-        DetailsTextBlock.Text = $"{image.Kind} | {image.Format} | {image.Width}x{image.Height} | {image.Url}";
+        _selectedImage = image;
+        _selectedBytes = null;
+        _selectedBitmap = null;
+        MetadataGrid.ItemsSource = BuildMetadata(image, null, null);
+        DetailsTextBlock.Text = BuildDetailsLine(image);
         await LoadPreviewAsync(image);
     }
 
@@ -67,60 +78,80 @@ public partial class ImageResourcesWindow : Window
             bitmap.EndInit();
             bitmap.Freeze();
 
+            _selectedBytes = bytes;
+            _selectedBitmap = bitmap;
             PreviewImage.Source = bitmap;
             PreviewPlaceholderTextBlock.Visibility = Visibility.Collapsed;
+            MetadataGrid.ItemsSource = BuildMetadata(image, bytes.Length, bitmap);
+            DetailsTextBlock.Text = BuildDetailsLine(image, bytes.Length, bitmap);
         }
         catch (Exception exception)
         {
             PreviewPlaceholderTextBlock.Text = $"Preview unavailable. The image can still be saved or opened.\n{exception.Message}";
             PreviewPlaceholderTextBlock.Visibility = Visibility.Visible;
+            MetadataGrid.ItemsSource = BuildMetadata(image, null, null);
         }
     }
 
     private void CopyUrlButton_Click(object sender, RoutedEventArgs e)
     {
-        if (ImagesListBox.SelectedItem is WebImageResource image)
-        {
-            System.Windows.Clipboard.SetText(image.Url);
-            DetailsTextBlock.Text = "Image URL copied.";
-        }
-    }
-
-    private void OpenButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (ImagesListBox.SelectedItem is not WebImageResource image)
+        if (_selectedImage is null)
         {
             return;
         }
 
-        if (image.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        System.Windows.Clipboard.SetText(_selectedImage.Url);
+        DetailsTextBlock.Text = "Image URL copied.";
+    }
+
+    private void CopyDetailsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedImage is null)
         {
-            DetailsTextBlock.Text = "Data URL images can be saved directly, but cannot be opened as a URL.";
+            return;
+        }
+
+        System.Windows.Clipboard.SetText(BuildDetailsBlock(_selectedImage, _selectedBytes?.Length, _selectedBitmap));
+        DetailsTextBlock.Text = "Image details copied.";
+    }
+
+    private void OpenButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedImage is null)
+        {
+            return;
+        }
+
+        if (_selectedImage.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            DetailsTextBlock.Text = "Data URL and lens frame images can be saved directly, but cannot be opened as a URL.";
             return;
         }
 
         Process.Start(new ProcessStartInfo
         {
-            FileName = image.Url,
+            FileName = _selectedImage.Url,
             UseShellExecute = true
         });
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
     {
-        if (ImagesListBox.SelectedItem is not WebImageResource image)
+        if (_selectedImage is null)
         {
             return;
         }
 
-        var extension = string.IsNullOrWhiteSpace(image.Format) || image.Format == "unknown"
+        var extension = string.IsNullOrWhiteSpace(_selectedImage.Format) || _selectedImage.Format == "unknown"
             ? "img"
-            : image.Format;
+            : _selectedImage.Format;
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Save image",
             Filter = "Image file|*.*",
-            FileName = $"julco-image-{DateTime.Now:yyyyMMdd-HHmmss}.{extension}"
+            FileName = _selectedImage.IsLensFrame
+                ? $"julco-lens-frame-{DateTime.Now:yyyyMMdd-HHmmss}.{extension}"
+                : $"julco-image-{DateTime.Now:yyyyMMdd-HHmmss}.{extension}"
         };
 
         if (dialog.ShowDialog(this) != true)
@@ -130,7 +161,7 @@ public partial class ImageResourcesWindow : Window
 
         try
         {
-            var bytes = await GetImageBytesAsync(image);
+            var bytes = _selectedBytes ?? await GetImageBytesAsync(_selectedImage);
             await File.WriteAllBytesAsync(dialog.FileName, bytes);
             DetailsTextBlock.Text = $"Saved: {dialog.FileName}";
         }
@@ -138,6 +169,56 @@ public partial class ImageResourcesWindow : Window
         {
             DetailsTextBlock.Text = $"Save failed: {exception.Message}";
         }
+    }
+
+    private static IReadOnlyList<ImageMetadataRow> BuildMetadata(
+        WebImageResource image,
+        long? loadedByteSize,
+        BitmapImage? bitmap)
+    {
+        var naturalWidth = image.NaturalWidth > 0
+            ? image.NaturalWidth
+            : bitmap?.PixelWidth ?? image.Width;
+        var naturalHeight = image.NaturalHeight > 0
+            ? image.NaturalHeight
+            : bitmap?.PixelHeight ?? image.Height;
+        var byteSize = loadedByteSize ?? (image.ByteSize > 0 ? image.ByteSize : null);
+
+        return new[]
+        {
+            new ImageMetadataRow("Source", image.IsLensFrame ? "Exact lens frame capture" : image.Kind),
+            new ImageMetadataRow("Format", image.Format),
+            new ImageMetadataRow("Animated", image.IsAnimated ? "Yes" : "No"),
+            new ImageMetadataRow("Natural size", naturalWidth > 0 && naturalHeight > 0 ? $"{naturalWidth} x {naturalHeight}" : "Unknown"),
+            new ImageMetadataRow("Displayed size", image.DisplayedSizeText),
+            new ImageMetadataRow("File weight", byteSize.HasValue ? FormatBytes(byteSize.Value) : "Unknown"),
+            new ImageMetadataRow("Alt / label", string.IsNullOrWhiteSpace(image.Alt) ? "-" : image.Alt),
+            new ImageMetadataRow("URL", image.Url)
+        };
+    }
+
+    private static string BuildDetailsLine(WebImageResource image, long? byteSize = null, BitmapImage? bitmap = null)
+    {
+        var naturalWidth = image.NaturalWidth > 0 ? image.NaturalWidth : bitmap?.PixelWidth ?? image.Width;
+        var naturalHeight = image.NaturalHeight > 0 ? image.NaturalHeight : bitmap?.PixelHeight ?? image.Height;
+        var natural = naturalWidth > 0 && naturalHeight > 0 ? $"{naturalWidth}x{naturalHeight}" : "unknown";
+        var bytes = byteSize ?? (image.ByteSize > 0 ? image.ByteSize : null);
+        var weight = bytes.HasValue ? FormatBytes(bytes.Value) : "unknown weight";
+        return $"{image.Kind} | {image.Format} | natural {natural} | displayed {image.DisplayedSizeText} | {weight}";
+    }
+
+    private static string BuildDetailsBlock(WebImageResource image, long? byteSize, BitmapImage? bitmap)
+    {
+        return string.Join(
+            Environment.NewLine,
+            BuildMetadata(image, byteSize, bitmap).Select(row => $"{row.Field}: {row.Value}"));
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        return bytes >= 1024 * 1024
+            ? $"{bytes / 1024d / 1024d:0.##} MB"
+            : $"{bytes / 1024d:0.#} KB";
     }
 
     private static async Task<byte[]> GetImageBytesAsync(WebImageResource image)
@@ -164,4 +245,8 @@ public partial class ImageResourcesWindow : Window
 
         return await HttpClient.GetByteArrayAsync(image.Url);
     }
+
+    private sealed record ImageMetadataRow(
+        string Field,
+        string Value);
 }

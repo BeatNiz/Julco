@@ -505,7 +505,9 @@ public partial class MainWindow : Window
             Directory.CreateDirectory(captureDirectory);
 
             var screenshotPath = Path.Combine(captureDirectory, "screenshot.png");
-            await CaptureRegionAsync(state, screenshotPath);
+            var screenshotBytes = await CaptureRegionAsync(state, screenshotPath);
+            _lastLensPreviewImage = CreateLensPreviewImage(state, screenshotBytes);
+            var evidenceImages = BuildImagesWithLensPreview(inspection.Images);
 
             var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(
@@ -519,7 +521,7 @@ public partial class MainWindow : Window
                 string.Join(Environment.NewLine, inspection.Attributes.Select(item => $"{item.Key}=\"{item.Value}\"")));
             File.WriteAllText(
                 Path.Combine(captureDirectory, "image-resources.json"),
-                JsonSerializer.Serialize(inspection.Images, jsonOptions));
+                JsonSerializer.Serialize(evidenceImages, jsonOptions));
             var commonIssues = CommonIssueDetector.Detect(inspection);
             File.WriteAllText(
                 Path.Combine(captureDirectory, "common-issues.json"),
@@ -802,10 +804,11 @@ public partial class MainWindow : Window
             notes.ToMarkdown());
     }
 
-    private async Task CaptureRegionAsync(LensFrameState state, string screenshotPath)
+    private async Task<byte[]> CaptureRegionAsync(LensFrameState state, string screenshotPath)
     {
         var bytes = await CaptureRegionBytesAsync(state, hideLens: true);
         await File.WriteAllBytesAsync(screenshotPath, bytes);
+        return bytes;
     }
 
     private async Task<byte[]> CaptureRegionBytesAsync(LensFrameState state, bool hideLens)
@@ -960,21 +963,33 @@ public partial class MainWindow : Window
         try
         {
             var bytes = await CaptureRegionBytesAsync(state, hideLens: true);
-            var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
-            return new WebImageResource(
-                dataUrl,
-                "lens-frame",
-                "png",
-                "Lens frame",
-                Math.Max(1, (int)Math.Round(state.Bounds.Width)),
-                Math.Max(1, (int)Math.Round(state.Bounds.Height)),
-                false);
+            return CreateLensPreviewImage(state, bytes);
         }
         catch (Exception exception)
         {
             SetStatus($"Lens preview unavailable: {exception.Message}");
             return null;
         }
+    }
+
+    private static WebImageResource CreateLensPreviewImage(LensFrameState state, byte[] bytes)
+    {
+        var width = Math.Max(1, (int)Math.Round(state.Bounds.Width));
+        var height = Math.Max(1, (int)Math.Round(state.Bounds.Height));
+        return new WebImageResource(
+            $"data:image/png;base64,{Convert.ToBase64String(bytes)}",
+            "lens-frame",
+            "png",
+            "Lens frame",
+            width,
+            height,
+            false,
+            width,
+            height,
+            width,
+            height,
+            bytes.Length,
+            true);
     }
 
     private void ToggleResultWindow(string kind, Func<Window> createWindow)
