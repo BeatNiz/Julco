@@ -14,7 +14,8 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         Settings = settings with
         {
-            Keyboard = (settings.Keyboard ?? KeyboardShortcutSettings.Default).Normalized()
+            Keyboard = (settings.Keyboard ?? KeyboardShortcutSettings.Default).Normalized(),
+            IssueTrackers = (settings.IssueTrackers ?? IssueTrackerSettings.Default).Normalized()
         };
         CdpPortTextBox.Text = settings.Ui.CdpPort.ToString();
         CaptureDirectoryTextBox.Text = string.IsNullOrWhiteSpace(settings.Capture.ScreenshotDirectory)
@@ -36,6 +37,17 @@ public partial class SettingsWindow : Window
         RedactPrivateUrlsCheckBox.IsChecked = settings.Privacy.RedactPrivateUrls;
         RedactSelectedTextCheckBox.IsChecked = settings.Privacy.RedactSelectedText;
         IncludeScreenshotsInSafeExportsCheckBox.IsChecked = settings.Privacy.IncludeScreenshotsInSafeExports;
+        EnableGitHubCheckBox.IsChecked = Settings.IssueTrackers.EnableGitHub;
+        GitHubOwnerTextBox.Text = Settings.IssueTrackers.GitHubOwner;
+        GitHubRepositoryTextBox.Text = Settings.IssueTrackers.GitHubRepository;
+        GitHubTokenTextBox.Text = Settings.IssueTrackers.GitHubToken;
+        GitHubLabelsTextBox.Text = Settings.IssueTrackers.GitHubLabels;
+        EnableJiraCheckBox.IsChecked = Settings.IssueTrackers.EnableJira;
+        JiraBaseUrlTextBox.Text = Settings.IssueTrackers.JiraBaseUrl;
+        JiraProjectKeyTextBox.Text = Settings.IssueTrackers.JiraProjectKey;
+        JiraIssueTypeTextBox.Text = Settings.IssueTrackers.JiraIssueType;
+        JiraEmailTextBox.Text = Settings.IssueTrackers.JiraEmail;
+        JiraApiTokenTextBox.Text = Settings.IssueTrackers.JiraApiToken;
         ApplyTheme(settings.Theme);
     }
 
@@ -115,6 +127,12 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        var issueTrackers = BuildIssueTrackerSettings();
+        if (!ValidateIssueTrackerSettings(issueTrackers))
+        {
+            return;
+        }
+
         Settings = Settings with
         {
             Theme = ThemeComboBox.SelectedItem is ThemeMode theme
@@ -140,6 +158,7 @@ public partial class SettingsWindow : Window
                 IncludeScreenshotsInSafeExports = IncludeScreenshotsInSafeExportsCheckBox.IsChecked == true
             },
             Keyboard = keyboardSettings,
+            IssueTrackers = issueTrackers,
             Ui = Settings.Ui with
             {
                 CdpPort = port,
@@ -183,6 +202,53 @@ public partial class SettingsWindow : Window
             EnableLocalShortcutsCheckBox.IsChecked == true,
             globalShortcuts,
             localShortcuts).Normalized();
+        return true;
+    }
+
+    private IssueTrackerSettings BuildIssueTrackerSettings()
+    {
+        return new IssueTrackerSettings(
+            EnableGitHubCheckBox.IsChecked == true,
+            GitHubOwnerTextBox.Text,
+            GitHubRepositoryTextBox.Text,
+            GitHubTokenTextBox.Text,
+            GitHubLabelsTextBox.Text,
+            EnableJiraCheckBox.IsChecked == true,
+            JiraBaseUrlTextBox.Text,
+            JiraProjectKeyTextBox.Text,
+            JiraIssueTypeTextBox.Text,
+            JiraEmailTextBox.Text,
+            JiraApiTokenTextBox.Text).Normalized();
+    }
+
+    private bool ValidateIssueTrackerSettings(IssueTrackerSettings settings)
+    {
+        if (settings.EnableGitHub
+            && (string.IsNullOrWhiteSpace(settings.GitHubOwner)
+                || string.IsNullOrWhiteSpace(settings.GitHubRepository)))
+        {
+            ShowValidation("GitHub needs owner and repository when enabled.");
+            return false;
+        }
+
+        if (settings.EnableJira)
+        {
+            if (string.IsNullOrWhiteSpace(settings.JiraBaseUrl)
+                || string.IsNullOrWhiteSpace(settings.JiraProjectKey)
+                || string.IsNullOrWhiteSpace(settings.JiraEmail))
+            {
+                ShowValidation("Jira needs base URL, project key, and email when enabled.");
+                return false;
+            }
+
+            if (!Uri.TryCreate(settings.JiraBaseUrl, UriKind.Absolute, out var jiraUri)
+                || jiraUri.Scheme is not ("http" or "https"))
+            {
+                ShowValidation("Jira base URL must be a valid http or https URL.");
+                return false;
+            }
+        }
+
         return true;
     }
 

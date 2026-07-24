@@ -37,6 +37,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -100,8 +101,20 @@
             </Grid>
         </Border>
 
+        <Border Grid.Row="2"
+                Background="{StaticResource PanelBackground}"
+                BorderBrush="{StaticResource BorderColor}"
+                BorderThickness="1"
+                Padding="10"
+                Margin="0,0,0,12">
+            <TextBlock x:Name="IntegrationStatusTextBlock"
+                       Text="Integration status"
+                       Foreground="{StaticResource MutedText}"
+                       TextWrapping="Wrap" />
+        </Border>
+
         <TextBox x:Name="BodyTextBox"
-                 Grid.Row="2"
+                 Grid.Row="3"
                  IsReadOnly="True"
                  AcceptsReturn="True"
                  AcceptsTab="True"
@@ -110,8 +123,8 @@
                  HorizontalScrollBarVisibility="Auto"
                  FontFamily="Consolas" />
 
-        <UniformGrid Grid.Row="3"
-                     Columns="4"
+        <UniformGrid Grid.Row="4"
+                     Columns="5"
                      Margin="0,12,0,0">
             <Button Content="Copy title"
                     Click="CopyTitleButton_Click"
@@ -124,6 +137,10 @@
                     Margin="6,0,6,0" />
             <Button Content="Open folder"
                     Click="OpenFolderButton_Click"
+                    Margin="6,0,6,0" />
+            <Button x:Name="SubmitButton"
+                    Content="Submit"
+                    Click="SubmitButton_Click"
                     Margin="6,0,0,0" />
         </UniformGrid>
     </Grid>

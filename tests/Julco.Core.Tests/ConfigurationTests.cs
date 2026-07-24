@@ -22,6 +22,8 @@ public sealed class ConfigurationTests
         Assert.Equal("Ctrl+Alt+Shift+L", settings.Keyboard.GlobalShortcuts[KeyboardShortcutSettings.ToggleLens]);
         Assert.Equal("Ctrl+Shift+C", settings.Keyboard.LocalShortcuts[KeyboardShortcutSettings.CaptureLens]);
         Assert.Equal(ExportFormat.Json, settings.Export.DefaultFormat);
+        Assert.False(settings.IssueTrackers.EnableGitHub);
+        Assert.False(settings.IssueTrackers.EnableJira);
         Assert.True(settings.History.MaxEntries > 0);
     }
 
@@ -90,11 +92,39 @@ public sealed class ConfigurationTests
             var settings = await new JsonSettingsStore(path).LoadAsync(CancellationToken.None);
 
             Assert.NotNull(settings.Keyboard);
+            Assert.NotNull(settings.IssueTrackers);
             Assert.Equal("Ctrl+Alt+Shift+D", settings.Keyboard.GlobalShortcuts[KeyboardShortcutSettings.OpenDom]);
+            Assert.Equal("Bug", settings.IssueTrackers.JiraIssueType);
         }
         finally
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void IssueTrackerSettingsNormalizeAndDetectConfiguration()
+    {
+        var settings = new IssueTrackerSettings(
+            EnableGitHub: true,
+            GitHubOwner: " BeatNiz ",
+            GitHubRepository: " Julco ",
+            GitHubToken: " ghp_example ",
+            GitHubLabels: " bug, julco, bug ",
+            EnableJira: true,
+            JiraBaseUrl: " https://example.atlassian.net/ ",
+            JiraProjectKey: " qa ",
+            JiraIssueType: "",
+            JiraEmail: " user@example.com ",
+            JiraApiToken: " token ").Normalized();
+
+        Assert.True(settings.IsGitHubConfigured);
+        Assert.True(settings.IsJiraConfigured);
+        Assert.Equal("BeatNiz", settings.GitHubOwner);
+        Assert.Equal("Julco", settings.GitHubRepository);
+        Assert.Equal("https://example.atlassian.net", settings.JiraBaseUrl);
+        Assert.Equal("QA", settings.JiraProjectKey);
+        Assert.Equal("Bug", settings.JiraIssueType);
+        Assert.Equal(new[] { "bug", "julco" }, settings.GitHubLabelList);
     }
 }

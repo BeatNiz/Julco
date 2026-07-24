@@ -11,16 +11,19 @@ public static class IssueTrackerDraftFactory
         return new[]
         {
             new IssueTrackerDraft(
+                IssueTrackerProvider.GitHub,
                 "GitHub Issues",
                 title,
                 BuildGitHubBody(report),
                 Path.Combine(outputDirectory, "github-issue.md")),
             new IssueTrackerDraft(
+                IssueTrackerProvider.Jira,
                 "Jira",
                 title,
                 BuildJiraBody(report),
                 Path.Combine(outputDirectory, "jira-issue.txt")),
             new IssueTrackerDraft(
+                IssueTrackerProvider.Generic,
                 "Generic ticket",
                 title,
                 BuildGenericBody(report),

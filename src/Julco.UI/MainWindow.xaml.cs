@@ -2385,7 +2385,7 @@ public partial class MainWindow : Window
                     Encoding.UTF8);
             }
 
-            var window = new IssueTrackerWindow(drafts, outputDirectory)
+            var window = new IssueTrackerWindow(drafts, outputDirectory, _settings.IssueTrackers)
             {
                 Owner = this,
                 Topmost = _settings.Ui.KeepResultWindowsTopmost
@@ -2587,6 +2587,7 @@ public partial class MainWindow : Window
             BuildCaptureFolderHealth(),
             BuildCaptureHistoryHealth(),
             BuildPrivacyHealth(),
+            BuildIssueTrackerHealth(),
             BuildShortcutHealth(),
             BuildProfileHealth()
         };
@@ -2684,6 +2685,48 @@ public partial class MainWindow : Window
             ? "Safe exports may include unredacted screenshots."
             : "Safe exports omit screenshots by default.";
         return Ok("Privacy", "Protected", $"Redaction is enabled. {screenshotPolicy}");
+    }
+
+    private HealthStatusItem BuildIssueTrackerHealth()
+    {
+        var issueTrackers = (_settings.IssueTrackers ?? IssueTrackerSettings.Default).Normalized();
+        var ready = new List<string>();
+        var enabledButMissing = new List<string>();
+        if (issueTrackers.EnableGitHub)
+        {
+            if (issueTrackers.IsGitHubConfigured)
+            {
+                ready.Add($"GitHub {issueTrackers.GitHubOwner}/{issueTrackers.GitHubRepository}");
+            }
+            else
+            {
+                enabledButMissing.Add("GitHub");
+            }
+        }
+
+        if (issueTrackers.EnableJira)
+        {
+            if (issueTrackers.IsJiraConfigured)
+            {
+                ready.Add($"Jira {issueTrackers.JiraProjectKey}");
+            }
+            else
+            {
+                enabledButMissing.Add("Jira");
+            }
+        }
+
+        if (enabledButMissing.Count > 0)
+        {
+            return Warn(
+                "Issue trackers",
+                "Needs setup",
+                $"{string.Join(", ", enabledButMissing)} enabled but missing required settings or token.");
+        }
+
+        return ready.Count == 0
+            ? Ok("Issue trackers", "Local drafts", "GitHub/Jira submission is optional and currently disabled.")
+            : Ok("Issue trackers", "Connected", string.Join("; ", ready));
     }
 
     private HealthStatusItem BuildShortcutHealth()

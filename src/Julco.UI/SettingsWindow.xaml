@@ -78,6 +78,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="130" />
@@ -197,6 +198,79 @@
                           Content="Include screenshots in safe exports"
                           ToolTip="Screenshots can contain visible private data. Keep this off unless you reviewed the image."
                           Margin="0,8,0,0" />
+            </StackPanel>
+
+            <TextBlock Grid.Row="9"
+                       Grid.Column="0"
+                       Text="Issue trackers"
+                       VerticalAlignment="Top"
+                       Foreground="{StaticResource MutedText}"
+                       Margin="0,18,0,0" />
+            <StackPanel Grid.Row="9"
+                        Grid.Column="1"
+                        Grid.ColumnSpan="2"
+                        Margin="0,14,0,0">
+                <TextBlock Text="Optional direct publishing. Julco still creates local drafts when these are disabled."
+                           TextWrapping="Wrap"
+                           Foreground="{StaticResource MutedText}"
+                           Margin="0,0,0,8" />
+                <CheckBox x:Name="EnableGitHubCheckBox"
+                          Content="Enable GitHub Issues submission" />
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Owner" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" />
+                    <TextBox x:Name="GitHubOwnerTextBox" Grid.Row="0" Grid.Column="1" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Repo" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="GitHubRepositoryTextBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Labels" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="GitHubLabelsTextBox" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" ToolTip="Comma-separated labels. Julco does not create labels automatically." />
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Token" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="GitHubTokenTextBox"
+                             Grid.Row="3"
+                             Grid.Column="1"
+                             Margin="0,8,0,0"
+                             ToolTip="Optional. Leave blank to use JULCO_GITHUB_TOKEN." />
+                </Grid>
+
+                <CheckBox x:Name="EnableJiraCheckBox"
+                          Content="Enable Jira submission"
+                          Margin="0,16,0,0" />
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" />
+                    <TextBox x:Name="JiraBaseUrlTextBox" Grid.Row="0" Grid.Column="1" ToolTip="Example: https://your-site.atlassian.net" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Project" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="JiraProjectKeyTextBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Issue type" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="JiraIssueTypeTextBox" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" />
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Email" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="JiraEmailTextBox" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" />
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Token" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                    <TextBox x:Name="JiraApiTokenTextBox"
+                             Grid.Row="4"
+                             Grid.Column="1"
+                             Margin="0,8,0,0"
+                             ToolTip="Optional. Leave blank to use JULCO_JIRA_API_TOKEN." />
+                </Grid>
             </StackPanel>
         </Grid>
         </ScrollViewer>

@@ -8,6 +8,7 @@ public sealed record AppSettings(
     HistorySettings History,
     PrivacySettings Privacy,
     KeyboardShortcutSettings Keyboard,
+    IssueTrackerSettings IssueTrackers,
     UiSettings Ui)
 {
     public static AppSettings Default { get; } = new(
@@ -18,6 +19,7 @@ public sealed record AppSettings(
         HistorySettings.Default,
         PrivacySettings.Default,
         KeyboardShortcutSettings.Default,
+        IssueTrackerSettings.Default,
         UiSettings.Default);
 
     public AppSettings Normalized()
@@ -32,6 +34,7 @@ public sealed record AppSettings(
             History = History ?? HistorySettings.Default,
             Privacy = Privacy ?? PrivacySettings.Default,
             Keyboard = (Keyboard ?? KeyboardShortcutSettings.Default).Normalized(),
+            IssueTrackers = (IssueTrackers ?? IssueTrackerSettings.Default).Normalized(),
             Ui = Ui ?? UiSettings.Default
         };
     }
