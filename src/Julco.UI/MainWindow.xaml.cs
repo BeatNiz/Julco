@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private bool _isInspectingLens;
     private bool _isCompactMode;
     private bool _isApplyingSettings;
+    private bool _isSourceInitialized;
     private string? _lastLiveLensHistoryKey;
     private AppSettings _settings = AppSettings.Default;
     private IReadOnlyList<UsageProfileDefinition> _usageProfiles = Array.Empty<UsageProfileDefinition>();
@@ -103,7 +104,8 @@ public partial class MainWindow : Window
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {
-        _globalHotkeys.Register(this, BuildGlobalHotkeys(), SetStatus);
+        _isSourceInitialized = true;
+        RefreshGlobalHotkeys();
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -1089,6 +1091,11 @@ public partial class MainWindow : Window
 
     private bool TryHandleLocalShortcut(System.Windows.Input.KeyEventArgs e)
     {
+        if (!_settings.Keyboard.EnableLocalShortcuts)
+        {
+            return false;
+        }
+
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         var modifiers = Keyboard.Modifiers;
         var hotkey = BuildLocalHotkeys().FirstOrDefault(item =>
@@ -1117,35 +1124,93 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<HotkeyDefinition> BuildGlobalHotkeys()
     {
-        const ModifierKeys modifiers = ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift;
-        return new[]
+        if (!_settings.Keyboard.EnableGlobalShortcuts)
         {
-            new HotkeyDefinition(1001, "Toggle lens", modifiers, Key.L, "Ctrl+Alt+Shift+L", () => RunHotkeyAction(BuildHotkeyAction("Toggle lens", ToggleLens))),
-            new HotkeyDefinition(1002, "Capture lens", modifiers, Key.C, "Ctrl+Alt+Shift+C", () => RunHotkeyAction(BuildHotkeyAction("Capture lens", () => _ = CaptureLensAsync()))),
-            new HotkeyDefinition(1003, "Next result tab", modifiers, Key.Right, "Ctrl+Alt+Shift+Right", () => RunHotkeyAction(BuildHotkeyAction("Next result tab", SelectNextResultTab))),
-            new HotkeyDefinition(1004, "Open DOM", modifiers, Key.D, "Ctrl+Alt+Shift+D", () => RunHotkeyAction(BuildHotkeyAction("Open DOM", ShowDomWindow))),
-            new HotkeyDefinition(1005, "Open CSS", modifiers, Key.S, "Ctrl+Alt+Shift+S", () => RunHotkeyAction(BuildHotkeyAction("Open CSS", ShowCssWindow))),
-            new HotkeyDefinition(1006, "Open images", modifiers, Key.I, "Ctrl+Alt+Shift+I", () => RunHotkeyAction(BuildHotkeyAction("Open images", () => _ = ShowImagesWindowAsync())))
-        };
+            return Array.Empty<HotkeyDefinition>();
+        }
+
+        return BuildConfiguredHotkeys(_settings.Keyboard.GlobalShortcuts, 1000, wrapAction: true);
     }
 
     private IReadOnlyList<HotkeyDefinition> BuildLocalHotkeys()
     {
-        const ModifierKeys modifiers = ModifierKeys.Control | ModifierKeys.Shift;
-        return new[]
+        if (!_settings.Keyboard.EnableLocalShortcuts)
         {
-            new HotkeyDefinition(2001, "Toggle lens", modifiers, Key.L, "Ctrl+Shift+L", ToggleLens),
-            new HotkeyDefinition(2002, "Capture lens", modifiers, Key.C, "Ctrl+Shift+C", () => _ = CaptureLensAsync()),
-            new HotkeyDefinition(2003, "Next result tab", modifiers, Key.Tab, "Ctrl+Shift+Tab", SelectNextResultTab),
-            new HotkeyDefinition(2004, "Open DOM", modifiers, Key.D, "Ctrl+Shift+D", ShowDomWindow),
-            new HotkeyDefinition(2005, "Open CSS", modifiers, Key.S, "Ctrl+Shift+S", ShowCssWindow),
-            new HotkeyDefinition(2006, "Open images", modifiers, Key.I, "Ctrl+Shift+I", () => _ = ShowImagesWindowAsync())
+            return Array.Empty<HotkeyDefinition>();
+        }
+
+        return BuildConfiguredHotkeys(_settings.Keyboard.LocalShortcuts, 2000, wrapAction: false);
+    }
+
+    private IReadOnlyList<HotkeyDefinition> BuildConfiguredHotkeys(
+        IReadOnlyDictionary<string, string> configuredShortcuts,
+        int idBase,
+        bool wrapAction)
+    {
+        var hotkeys = new List<HotkeyDefinition>();
+        var actions = BuildHotkeyActions();
+        var ordinal = 1;
+        foreach (var descriptor in HotkeyActionCatalog.All)
+        {
+            if (!configuredShortcuts.TryGetValue(descriptor.Id, out var shortcutText))
+            {
+                ordinal++;
+                continue;
+            }
+
+            var parsed = HotkeyTextParser.Parse(shortcutText);
+            if (!parsed.IsEnabled)
+            {
+                if (!string.IsNullOrWhiteSpace(parsed.Error))
+                {
+                    SetStatus($"Shortcut ignored ({descriptor.Name}): {parsed.Error}");
+                }
+
+                ordinal++;
+                continue;
+            }
+
+            var action = actions[descriptor.Id];
+            hotkeys.Add(new HotkeyDefinition(
+                idBase + ordinal,
+                descriptor.Id,
+                descriptor.Name,
+                parsed.Modifiers,
+                parsed.Key,
+                parsed.DisplayText,
+                wrapAction ? () => RunHotkeyAction(BuildHotkeyAction(descriptor.Id, descriptor.Name, action)) : action));
+            ordinal++;
+        }
+
+        return hotkeys;
+    }
+
+    private Dictionary<string, Action> BuildHotkeyActions()
+    {
+        return new Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase)
+        {
+            [KeyboardShortcutSettings.ToggleLens] = ToggleLens,
+            [KeyboardShortcutSettings.CaptureLens] = () => _ = CaptureLensAsync(),
+            [KeyboardShortcutSettings.NextResultTab] = SelectNextResultTab,
+            [KeyboardShortcutSettings.OpenDom] = ShowDomWindow,
+            [KeyboardShortcutSettings.OpenCss] = ShowCssWindow,
+            [KeyboardShortcutSettings.OpenImages] = () => _ = ShowImagesWindowAsync()
         };
     }
 
-    private static HotkeyDefinition BuildHotkeyAction(string name, Action action)
+    private static HotkeyDefinition BuildHotkeyAction(string actionId, string name, Action action)
     {
-        return new HotkeyDefinition(0, name, ModifierKeys.None, Key.None, string.Empty, action);
+        return new HotkeyDefinition(0, actionId, name, ModifierKeys.None, Key.None, string.Empty, action);
+    }
+
+    private void RefreshGlobalHotkeys()
+    {
+        if (!_isSourceInitialized)
+        {
+            return;
+        }
+
+        _globalHotkeys.Register(this, BuildGlobalHotkeys(), SetStatus);
     }
 
     private void SelectNextResultTab()
@@ -1410,17 +1475,7 @@ public partial class MainWindow : Window
 
     private static AppSettings NormalizeSettings(AppSettings settings)
     {
-        return settings with
-        {
-            Language = string.IsNullOrWhiteSpace(settings.Language)
-                ? AppSettings.Default.Language
-                : settings.Language,
-            Capture = settings.Capture ?? CaptureSettings.Default,
-            Export = settings.Export ?? ExportSettings.Default,
-            History = settings.History ?? HistorySettings.Default,
-            Privacy = settings.Privacy ?? PrivacySettings.Default,
-            Ui = settings.Ui ?? UiSettings.Default
-        };
+        return settings.Normalized();
     }
 
     private void ApplySettingsToUi()
@@ -1725,9 +1780,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settings = window.Settings;
+        _settings = NormalizeSettings(window.Settings);
         ApplySettingsToUi();
         await SaveSettingsAsync();
+        RefreshGlobalHotkeys();
         LoadCaptures();
         SetStatus("Settings saved.");
     }

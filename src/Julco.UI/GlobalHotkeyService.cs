@@ -22,7 +22,7 @@ public sealed class GlobalHotkeyService : IDisposable
     {
         if (_source is not null)
         {
-            return;
+            Dispose();
         }
 
         _handle = new WindowInteropHelper(owner).Handle;
@@ -30,6 +30,7 @@ public sealed class GlobalHotkeyService : IDisposable
         _source?.AddHook(WndProc);
         _hotkeys.Clear();
         var failures = new List<string>();
+        var registered = new List<string>();
 
         foreach (var hotkey in hotkeys)
         {
@@ -37,12 +38,24 @@ public sealed class GlobalHotkeyService : IDisposable
             if (!RegisterHotKey(_handle, hotkey.Id, ToNativeModifiers(hotkey.Modifiers), (uint)KeyInterop.VirtualKeyFromKey(hotkey.Key)))
             {
                 failures.Add(hotkey.DisplayText);
+                continue;
             }
+
+            registered.Add($"{hotkey.Name} {hotkey.DisplayText}");
         }
 
-        reportStatus(failures.Count == 0
-            ? "Global shortcuts ready: Ctrl+Alt+Shift+L lens, C capture, Right tab, D DOM, S CSS, I images."
-            : $"Some global shortcuts are already in use: {string.Join(", ", failures)}.");
+        if (registered.Count == 0 && failures.Count == 0)
+        {
+            reportStatus("Global shortcuts are disabled.");
+        }
+        else if (failures.Count == 0)
+        {
+            reportStatus($"Global shortcuts ready: {string.Join(", ", registered)}.");
+        }
+        else
+        {
+            reportStatus($"Some global shortcuts are already in use or invalid: {string.Join(", ", failures)}.");
+        }
     }
 
     public void Dispose()

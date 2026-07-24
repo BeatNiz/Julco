@@ -30,7 +30,7 @@ public sealed class JsonSettingsStore
             SerializerOptions,
             cancellationToken);
 
-        return settings ?? AppSettings.Default;
+        return (settings ?? AppSettings.Default).Normalized();
     }
 
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken)

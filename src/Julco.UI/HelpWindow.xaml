@@ -70,7 +70,7 @@
                     <StackPanel>
                         <TextBlock Text="Keyboard Shortcuts" Style="{StaticResource SectionTitle}" />
                         <TextBlock Style="{StaticResource HelpText}"
-                                   Text="Global shortcuts work even while the browser has focus. Use Ctrl+Alt+Shift+L to open or close Lens, Ctrl+Alt+Shift+C to capture, Ctrl+Alt+Shift+Right to switch result tabs, Ctrl+Alt+Shift+D for DOM, Ctrl+Alt+Shift+S for CSS, and Ctrl+Alt+Shift+I for Images. When Julco itself has focus, the same actions also work with Ctrl+Shift plus the same final key." />
+                                   Text="Shortcuts can be changed in Settings. By default, global shortcuts work even while the browser has focus: Ctrl+Alt+Shift+L opens or closes Lens, Ctrl+Alt+Shift+C captures, Ctrl+Alt+Shift+Right switches result tabs, Ctrl+Alt+Shift+D opens DOM, Ctrl+Alt+Shift+S opens CSS, and Ctrl+Alt+Shift+I opens Images. When Julco itself has focus, the same actions also work with Ctrl+Shift plus the same final key. Leave any shortcut blank in Settings to disable only that action." />
                     </StackPanel>
                 </Border>
 

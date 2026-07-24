@@ -7,6 +7,7 @@ public sealed record AppSettings(
     ExportSettings Export,
     HistorySettings History,
     PrivacySettings Privacy,
+    KeyboardShortcutSettings Keyboard,
     UiSettings Ui)
 {
     public static AppSettings Default { get; } = new(
@@ -16,5 +17,22 @@ public sealed record AppSettings(
         ExportSettings.Default,
         HistorySettings.Default,
         PrivacySettings.Default,
+        KeyboardShortcutSettings.Default,
         UiSettings.Default);
+
+    public AppSettings Normalized()
+    {
+        return this with
+        {
+            Language = string.IsNullOrWhiteSpace(Language)
+                ? Default.Language
+                : Language,
+            Capture = Capture ?? CaptureSettings.Default,
+            Export = Export ?? ExportSettings.Default,
+            History = History ?? HistorySettings.Default,
+            Privacy = Privacy ?? PrivacySettings.Default,
+            Keyboard = (Keyboard ?? KeyboardShortcutSettings.Default).Normalized(),
+            Ui = Ui ?? UiSettings.Default
+        };
+    }
 }

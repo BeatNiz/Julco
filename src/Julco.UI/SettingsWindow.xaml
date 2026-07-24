@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Julco Settings"
-        Width="430"
-        Height="560"
-        MinWidth="390"
-        MinHeight="520"
+        Width="660"
+        Height="720"
+        MinWidth="560"
+        MinHeight="620"
         WindowStartupLocation="CenterOwner"
         Background="#101217"
         Foreground="#F4F6F8"
@@ -40,6 +40,15 @@
         </Style>
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
+        </Style>
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource InputBackground}" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryText}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="RowBackground" Value="{StaticResource InputBackground}" />
+            <Setter Property="AlternatingRowBackground" Value="{StaticResource ControlBackground}" />
+            <Setter Property="GridLinesVisibility" Value="None" />
+            <Setter Property="HeadersVisibility" Value="Column" />
         </Style>
     </Window.Resources>
 
@@ -108,11 +117,62 @@
 
             <TextBlock Grid.Row="7"
                        Grid.Column="0"
-                       Text="Privacy"
+                       Text="Shortcuts"
                        VerticalAlignment="Top"
                        Foreground="{StaticResource MutedText}"
                        Margin="0,18,0,0" />
             <StackPanel Grid.Row="7"
+                        Grid.Column="1"
+                        Grid.ColumnSpan="2"
+                        Margin="0,14,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <CheckBox x:Name="EnableGlobalShortcutsCheckBox"
+                              Content="Global"
+                              Margin="0,0,16,0" />
+                    <CheckBox x:Name="EnableLocalShortcutsCheckBox"
+                              Content="When Julco has focus" />
+                </StackPanel>
+                <DataGrid x:Name="ShortcutsDataGrid"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          MinHeight="190"
+                          MaxHeight="240"
+                          RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Action"
+                                                Binding="{Binding ActionName}"
+                                                IsReadOnly="True"
+                                                Width="1.1*" />
+                            <DataGridTextColumn Header="Purpose"
+                                                Binding="{Binding Description}"
+                                                IsReadOnly="True"
+                                                Width="1.6*" />
+                            <DataGridTextColumn Header="Global"
+                                                Binding="{Binding GlobalShortcut, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="1.2*" />
+                        <DataGridTextColumn Header="Local"
+                                            Binding="{Binding LocalShortcut, UpdateSourceTrigger=PropertyChanged}"
+                                            Width="1.1*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Text="Leave a shortcut blank to disable only that action. Use combinations like Ctrl+Alt+Shift+L."
+                           TextWrapping="Wrap"
+                           Foreground="{StaticResource MutedText}"
+                           Margin="0,8,0,0" />
+                <Button Content="Restore default shortcuts"
+                        HorizontalAlignment="Left"
+                        Margin="0,8,0,0"
+                        Click="RestoreShortcutsButton_Click" />
+            </StackPanel>
+
+            <TextBlock Grid.Row="8"
+                       Grid.Column="0"
+                       Text="Privacy"
+                       VerticalAlignment="Top"
+                       Foreground="{StaticResource MutedText}"
+                       Margin="0,18,0,0" />
+            <StackPanel Grid.Row="8"
                         Grid.Column="1"
                         Grid.ColumnSpan="2"
                         Margin="0,14,0,0">

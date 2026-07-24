@@ -7,10 +7,15 @@ namespace Julco.UI;
 
 public partial class SettingsWindow : Window
 {
+    private readonly List<ShortcutEditorRow> _shortcutRows = new();
+
     public SettingsWindow(AppSettings settings, string resolvedCaptureDirectory)
     {
         InitializeComponent();
-        Settings = settings;
+        Settings = settings with
+        {
+            Keyboard = (settings.Keyboard ?? KeyboardShortcutSettings.Default).Normalized()
+        };
         CdpPortTextBox.Text = settings.Ui.CdpPort.ToString();
         CaptureDirectoryTextBox.Text = string.IsNullOrWhiteSpace(settings.Capture.ScreenshotDirectory)
             ? resolvedCaptureDirectory
@@ -21,6 +26,9 @@ public partial class SettingsWindow : Window
         ThemeComboBox.ItemsSource = Enum.GetValues<ThemeMode>();
         ThemeComboBox.SelectedItem = settings.Theme;
         TopmostCheckBox.IsChecked = settings.Ui.KeepResultWindowsTopmost;
+        EnableGlobalShortcutsCheckBox.IsChecked = Settings.Keyboard.EnableGlobalShortcuts;
+        EnableLocalShortcutsCheckBox.IsChecked = Settings.Keyboard.EnableLocalShortcuts;
+        LoadShortcutRows(Settings.Keyboard);
         RedactOnExportCheckBox.IsChecked = settings.Privacy.RedactOnExport;
         RedactEmailsCheckBox.IsChecked = settings.Privacy.RedactEmails;
         RedactTokensCheckBox.IsChecked = settings.Privacy.RedactTokens;
@@ -31,6 +39,27 @@ public partial class SettingsWindow : Window
     }
 
     public AppSettings Settings { get; private set; }
+
+    private void LoadShortcutRows(KeyboardShortcutSettings keyboard)
+    {
+        _shortcutRows.Clear();
+        foreach (var action in HotkeyActionCatalog.All)
+        {
+            keyboard.GlobalShortcuts.TryGetValue(action.Id, out var globalShortcut);
+            keyboard.LocalShortcuts.TryGetValue(action.Id, out var localShortcut);
+            _shortcutRows.Add(new ShortcutEditorRow
+            {
+                ActionId = action.Id,
+                ActionName = action.Name,
+                Description = action.Description,
+                GlobalShortcut = globalShortcut ?? string.Empty,
+                LocalShortcut = localShortcut ?? string.Empty
+            });
+        }
+
+        ShortcutsDataGrid.ItemsSource = null;
+        ShortcutsDataGrid.ItemsSource = _shortcutRows;
+    }
 
     private void BrowseButton_Click(object sender, RoutedEventArgs e)
     {
@@ -80,6 +109,11 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        if (!TryBuildKeyboardSettings(out var keyboardSettings))
+        {
+            return;
+        }
+
         Settings = Settings with
         {
             Theme = ThemeComboBox.SelectedItem is ThemeMode theme
@@ -103,6 +137,7 @@ public partial class SettingsWindow : Window
                 RedactPrivateUrls = RedactPrivateUrlsCheckBox.IsChecked == true,
                 RedactSelectedText = RedactSelectedTextCheckBox.IsChecked == true
             },
+            Keyboard = keyboardSettings,
             Ui = Settings.Ui with
             {
                 CdpPort = port,
@@ -113,6 +148,76 @@ public partial class SettingsWindow : Window
 
         DialogResult = true;
         Close();
+    }
+
+    private bool TryBuildKeyboardSettings(out KeyboardShortcutSettings keyboardSettings)
+    {
+        var globalShortcuts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var localShortcuts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        keyboardSettings = KeyboardShortcutSettings.Default;
+
+        foreach (var row in _shortcutRows)
+        {
+            var globalShortcut = HotkeyTextParser.Normalize(row.GlobalShortcut);
+            var localShortcut = HotkeyTextParser.Normalize(row.LocalShortcut);
+            if (!ValidateShortcut(row.ActionName, "global", globalShortcut)
+                || !ValidateShortcut(row.ActionName, "local", localShortcut))
+            {
+                return false;
+            }
+
+            globalShortcuts[row.ActionId] = globalShortcut;
+            localShortcuts[row.ActionId] = localShortcut;
+        }
+
+        if (!ValidateNoDuplicates("global", globalShortcuts)
+            || !ValidateNoDuplicates("local", localShortcuts))
+        {
+            return false;
+        }
+
+        keyboardSettings = new KeyboardShortcutSettings(
+            EnableGlobalShortcutsCheckBox.IsChecked == true,
+            EnableLocalShortcutsCheckBox.IsChecked == true,
+            globalShortcuts,
+            localShortcuts).Normalized();
+        return true;
+    }
+
+    private bool ValidateShortcut(string actionName, string scope, string shortcut)
+    {
+        var parsed = HotkeyTextParser.Parse(shortcut);
+        if (parsed.Error is null)
+        {
+            return true;
+        }
+
+        ShowValidation($"{actionName} has an invalid {scope} shortcut: {parsed.Error}");
+        return false;
+    }
+
+    private bool ValidateNoDuplicates(string scope, IReadOnlyDictionary<string, string> shortcuts)
+    {
+        var duplicates = shortcuts
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .GroupBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicates is null)
+        {
+            return true;
+        }
+
+        var names = duplicates
+            .Select(pair => _shortcutRows.First(row => row.ActionId == pair.Key).ActionName);
+        ShowValidation($"The {scope} shortcut {duplicates.Key} is assigned to multiple actions: {string.Join(", ", names)}.");
+        return false;
+    }
+
+    private void RestoreShortcutsButton_Click(object sender, RoutedEventArgs e)
+    {
+        EnableGlobalShortcutsCheckBox.IsChecked = KeyboardShortcutSettings.Default.EnableGlobalShortcuts;
+        EnableLocalShortcutsCheckBox.IsChecked = KeyboardShortcutSettings.Default.EnableLocalShortcuts;
+        LoadShortcutRows(KeyboardShortcutSettings.Default);
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
@@ -155,5 +260,18 @@ public partial class SettingsWindow : Window
 
         Resources[key] = new SolidColorBrush(
             (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
+    }
+
+    private sealed class ShortcutEditorRow
+    {
+        public string ActionId { get; init; } = string.Empty;
+
+        public string ActionName { get; init; } = string.Empty;
+
+        public string Description { get; init; } = string.Empty;
+
+        public string GlobalShortcut { get; set; } = string.Empty;
+
+        public string LocalShortcut { get; set; } = string.Empty;
     }
 }
