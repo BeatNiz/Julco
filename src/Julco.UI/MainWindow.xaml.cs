@@ -193,7 +193,20 @@ public partial class MainWindow : Window
         SetStatus($"Profile active: {profile.DisplayName}.");
     }
 
-    private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateCaptureNotesPreview();
+    private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        SyncSelectedCapture(CaptureFilesListBox.SelectedItem as CaptureFileRecord);
+    }
+
+    private void CaptureFilesDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        SyncSelectedCapture(CaptureFilesDataGrid.SelectedItem as CaptureFileRecord);
+    }
+
+    private void CaptureHistory_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        OpenSelectedCapture();
+    }
 
     private void CaptureSearchTextBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyCaptureFilters();
 
@@ -1273,7 +1286,7 @@ public partial class MainWindow : Window
         InspectorTitleTextBlock.Visibility = Visibility.Collapsed;
         InspectorHelpTextBlock.Visibility = Visibility.Collapsed;
         HistoryListBox.MaxHeight = 110;
-        CaptureFilesListBox.MaxHeight = 130;
+        CaptureHistoryTabControl.MaxHeight = 220;
         SetCompactButtonMetrics(true);
         SetStatus("Compact mode: use the vertical controls and result buttons.");
     }
@@ -1299,7 +1312,7 @@ public partial class MainWindow : Window
         Grid.SetColumn(TitleBarControlsPanel, 2);
         LogoImage.Width = 62;
         LogoImage.Height = 62;
-        CaptureFilesListBox.MaxHeight = double.PositiveInfinity;
+        CaptureHistoryTabControl.MaxHeight = double.PositiveInfinity;
         SetCompactButtonMetrics(false);
 
         var targetScreen = screens.FirstOrDefault(screen => !screen.Primary) ?? screens[0];
@@ -1815,7 +1828,7 @@ public partial class MainWindow : Window
 
     private void LoadCaptures()
     {
-        var selectedDirectory = CaptureFilesListBox.SelectedItem is CaptureFileRecord selected
+        var selectedDirectory = GetSelectedCapture() is CaptureFileRecord selected
             ? selected.DirectoryPath
             : null;
         _captureFiles.Clear();
@@ -1834,6 +1847,7 @@ public partial class MainWindow : Window
     private void ApplyCaptureFilters(string? preferredSelection = null)
     {
         if (CaptureFilesListBox is null
+            || CaptureFilesDataGrid is null
             || CaptureSearchTextBox is null
             || CaptureBrowserFilterComboBox is null
             || CaptureStatusFilterComboBox is null
@@ -1862,18 +1876,20 @@ public partial class MainWindow : Window
         _filteredCaptureFiles.AddRange(filtered);
         CaptureFilesListBox.ItemsSource = null;
         CaptureFilesListBox.ItemsSource = _filteredCaptureFiles;
+        CaptureFilesDataGrid.ItemsSource = null;
+        CaptureFilesDataGrid.ItemsSource = _filteredCaptureFiles;
 
         if (!string.IsNullOrWhiteSpace(preferredSelection))
         {
             SelectCapture(preferredSelection);
-            if (CaptureFilesListBox.SelectedItem is null && _filteredCaptureFiles.Count > 0)
+            if (GetSelectedCapture() is null && _filteredCaptureFiles.Count > 0)
             {
-                CaptureFilesListBox.SelectedIndex = 0;
+                SelectCapture(_filteredCaptureFiles[0]);
             }
         }
-        else if (_filteredCaptureFiles.Count > 0 && CaptureFilesListBox.SelectedItem is null)
+        else if (_filteredCaptureFiles.Count > 0 && GetSelectedCapture() is null)
         {
-            CaptureFilesListBox.SelectedIndex = 0;
+            SelectCapture(_filteredCaptureFiles[0]);
         }
 
         SetCaptureFilterStatus();
@@ -1882,9 +1898,46 @@ public partial class MainWindow : Window
 
     private void SelectCapture(string directory)
     {
-        CaptureFilesListBox.SelectedItem = _filteredCaptureFiles.FirstOrDefault(item =>
-            string.Equals(item.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase));
+        SelectCapture(_filteredCaptureFiles.FirstOrDefault(item =>
+            string.Equals(item.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase)));
         UpdateCaptureNotesPreview();
+    }
+
+    private void SelectCapture(CaptureFileRecord? capture)
+    {
+        CaptureFilesListBox.SelectedItem = capture;
+        CaptureFilesDataGrid.SelectedItem = capture;
+        if (capture is not null)
+        {
+            CaptureFilesDataGrid.ScrollIntoView(capture);
+        }
+    }
+
+    private void SyncSelectedCapture(CaptureFileRecord? capture)
+    {
+        if (capture is null)
+        {
+            UpdateCaptureNotesPreview();
+            return;
+        }
+
+        if (!ReferenceEquals(CaptureFilesListBox.SelectedItem, capture))
+        {
+            CaptureFilesListBox.SelectedItem = capture;
+        }
+
+        if (!ReferenceEquals(CaptureFilesDataGrid.SelectedItem, capture))
+        {
+            CaptureFilesDataGrid.SelectedItem = capture;
+        }
+
+        UpdateCaptureNotesPreview();
+    }
+
+    private CaptureFileRecord? GetSelectedCapture()
+    {
+        return CaptureFilesDataGrid?.SelectedItem as CaptureFileRecord
+            ?? CaptureFilesListBox?.SelectedItem as CaptureFileRecord;
     }
 
     private void InitializeCaptureFilters()
@@ -1980,7 +2033,7 @@ public partial class MainWindow : Window
 
     private void UpdateCaptureNotesPreview()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             CaptureNotesPreviewTextBlock.Text = "No capture selected.";
             return;
@@ -1992,7 +2045,7 @@ public partial class MainWindow : Window
 
     private void OpenSelectedCapture()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select a capture first.");
             return;
@@ -2007,7 +2060,7 @@ public partial class MainWindow : Window
 
     private void RenameSelectedCapture()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select a capture first.");
             return;
@@ -2046,7 +2099,7 @@ public partial class MainWindow : Window
 
     private void DeleteSelectedCapture()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select a capture first.");
             return;
@@ -2071,7 +2124,7 @@ public partial class MainWindow : Window
 
     private void EditSelectedEvidenceNotes()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select an evidence package first.");
             return;
@@ -2123,7 +2176,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var selectedDirectory = CaptureFilesListBox.SelectedItem is CaptureFileRecord capture
+        var selectedDirectory = GetSelectedCapture() is CaptureFileRecord capture
             ? capture.DirectoryPath
             : comparisonSource[0].DirectoryPath;
         var window = new CaptureComparisonWindow(
@@ -2141,7 +2194,7 @@ public partial class MainWindow : Window
 
     private void ExportSelectedCaptureReport()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select a capture before exporting a report.");
             return;
@@ -2182,7 +2235,7 @@ public partial class MainWindow : Window
 
     private void GenerateIssueTrackerReports()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select a capture before creating issue tracker drafts.");
             return;
@@ -2226,7 +2279,7 @@ public partial class MainWindow : Window
 
     private void ShowPrivacyPreview()
     {
-        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
         {
             SetStatus("Select a capture before opening privacy preview.");
             return;
@@ -2461,8 +2514,34 @@ public partial class MainWindow : Window
         string NoteSeverity,
         string NoteTags,
         string NoteText,
+        string ScreenshotPath,
         string SearchText)
     {
+        public string ThumbnailPath => ResolveThumbnailPath(ScreenshotPath);
+
+        public string ThumbnailFallback => File.Exists(ScreenshotPath) ? string.Empty : "No image";
+
+        public string CreatedLocalText => CreatedAt.LocalDateTime.ToString("MM-dd HH:mm");
+
+        public string HistoryTitle => string.IsNullOrWhiteSpace(PageTitle)
+            ? Path.GetFileName(DirectoryPath)
+            : PageTitle;
+
+        public string HistorySubtitle => string.IsNullOrWhiteSpace(Selector)
+            ? $"{TagName}  {Url}"
+            : $"{TagName}  {Selector}";
+
+        public string HistoryMeta
+        {
+            get
+            {
+                var note = string.IsNullOrWhiteSpace(NoteText)
+                    ? string.Empty
+                    : $"  notes:{NoteSeverity}/{NoteStatus}";
+                return $"{CreatedLocalText}  {Browser}  {ShortenForHistory(Url, 90)}{note}";
+            }
+        }
+
         public static CaptureFileRecord FromDirectory(string directoryPath)
         {
             var evidencePath = Path.Combine(directoryPath, "evidence.json");
@@ -2491,6 +2570,7 @@ public partial class MainWindow : Window
                             notes.Severity,
                             notes.Tags,
                             notes.Observation,
+                            ResolveCaptureFile(directoryPath, evidence.Files.Screenshot),
                             BuildCaptureSearchText(
                                 directoryPath,
                                 displayName,
@@ -2533,6 +2613,7 @@ public partial class MainWindow : Window
                             notes.Severity,
                             notes.Tags,
                             notes.Observation,
+                            ResolveCaptureFile(directoryPath, manifest.Screenshot),
                             BuildCaptureSearchText(
                                 directoryPath,
                                 displayName,
@@ -2564,6 +2645,7 @@ public partial class MainWindow : Window
                 fallbackNotes.Severity,
                 fallbackNotes.Tags,
                 fallbackNotes.Observation,
+                ResolveCaptureFile(directoryPath, "screenshot.png"),
                 BuildCaptureSearchText(
                     directoryPath,
                     fallbackName,
@@ -2599,6 +2681,72 @@ public partial class MainWindow : Window
                 notes.Tags,
                 notes.Observation,
                 Path.GetFileName(directoryPath));
+        }
+
+        private static string ResolveCaptureFile(string directoryPath, string? relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                return string.Empty;
+            }
+
+            var path = Path.IsPathRooted(relativePath)
+                ? relativePath
+                : Path.Combine(directoryPath, relativePath);
+            return File.Exists(path) ? path : string.Empty;
+        }
+
+        private static string ResolveThumbnailPath(string screenshotPath)
+        {
+            if (string.IsNullOrWhiteSpace(screenshotPath) || !File.Exists(screenshotPath))
+            {
+                return string.Empty;
+            }
+
+            var thumbnailPath = Path.Combine(
+                Path.GetDirectoryName(screenshotPath) ?? string.Empty,
+                ".julco-thumbnail.png");
+            try
+            {
+                if (File.Exists(thumbnailPath)
+                    && File.GetLastWriteTimeUtc(thumbnailPath) >= File.GetLastWriteTimeUtc(screenshotPath))
+                {
+                    return thumbnailPath;
+                }
+
+                using var source = System.Drawing.Image.FromFile(screenshotPath);
+                const int maxWidth = 180;
+                const int maxHeight = 120;
+                var scale = Math.Min(maxWidth / (double)source.Width, maxHeight / (double)source.Height);
+                var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+                var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+                using var thumbnail = new System.Drawing.Bitmap(maxWidth, maxHeight);
+                using var graphics = System.Drawing.Graphics.FromImage(thumbnail);
+                graphics.Clear(System.Drawing.Color.FromArgb(10, 14, 20));
+                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                var x = (maxWidth - width) / 2;
+                var y = (maxHeight - height) / 2;
+                graphics.DrawImage(source, x, y, width, height);
+                thumbnail.Save(thumbnailPath, System.Drawing.Imaging.ImageFormat.Png);
+                return thumbnailPath;
+            }
+            catch
+            {
+                return screenshotPath;
+            }
+        }
+
+        private static string ShortenForHistory(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "-";
+            }
+
+            return value.Length <= maxLength
+                ? value
+                : value[..Math.Max(0, maxLength - 1)] + "...";
         }
     }
 }

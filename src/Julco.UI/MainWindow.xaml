@@ -432,7 +432,7 @@
                             <RowDefinition x:Name="HistoryRow" Height="*" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition x:Name="CapturesRow" Height="1.2*" />
+                            <RowDefinition x:Name="CapturesRow" Height="1.6*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
@@ -504,14 +504,113 @@
                             </WrapPanel>
                         </Grid>
 
-                        <ListBox x:Name="CaptureFilesListBox"
-                                 Grid.Row="3"
-                                 DisplayMemberPath="DisplayName"
-                                 MinHeight="90"
-                                 Background="{StaticResource ListBackground}"
-                                 Foreground="{StaticResource PrimaryText}"
-                                 BorderBrush="{StaticResource BorderColor}"
-                                 SelectionChanged="CaptureFilesListBox_SelectionChanged" />
+                        <TabControl x:Name="CaptureHistoryTabControl"
+                                    Grid.Row="3"
+                                    MinHeight="150"
+                                    Background="{StaticResource ListBackground}"
+                                    Foreground="{StaticResource PrimaryText}"
+                                    BorderBrush="{StaticResource BorderColor}">
+                            <TabItem Header="Cards">
+                                <ListBox x:Name="CaptureFilesListBox"
+                                         Background="{StaticResource ListBackground}"
+                                         Foreground="{StaticResource PrimaryText}"
+                                         BorderBrush="{StaticResource BorderColor}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         SelectionChanged="CaptureFilesListBox_SelectionChanged"
+                                         MouseDoubleClick="CaptureHistory_MouseDoubleClick">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,2,0,4" MinHeight="68">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="82" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+
+                                                <Border Width="72"
+                                                        Height="54"
+                                                        Background="{StaticResource InputBackground}"
+                                                        BorderBrush="{StaticResource BorderColor}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="4"
+                                                        ClipToBounds="True"
+                                                        HorizontalAlignment="Left">
+                                                    <Grid>
+                                                        <Image Source="{Binding ThumbnailPath}"
+                                                               Stretch="UniformToFill" />
+                                                        <TextBlock Text="{Binding ThumbnailFallback}"
+                                                                   Foreground="{StaticResource MutedText}"
+                                                                   FontSize="10"
+                                                                   TextAlignment="Center"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center"
+                                                                   TextWrapping="Wrap" />
+                                                    </Grid>
+                                                </Border>
+
+                                                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                    <TextBlock Text="{Binding HistoryTitle}"
+                                                               FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding PageTitle}" />
+                                                    <TextBlock Text="{Binding HistorySubtitle}"
+                                                               Foreground="{StaticResource MutedText}"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding Selector}" />
+                                                    <TextBlock Text="{Binding HistoryMeta}"
+                                                               Foreground="{StaticResource MutedText}"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding Url}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </TabItem>
+                            <TabItem Header="Table">
+                                <DataGrid x:Name="CaptureFilesDataGrid"
+                                          AutoGenerateColumns="False"
+                                          CanUserAddRows="False"
+                                          CanUserDeleteRows="False"
+                                          IsReadOnly="True"
+                                          RowHeaderWidth="0"
+                                          Background="{StaticResource ListBackground}"
+                                          Foreground="{StaticResource PrimaryText}"
+                                          BorderBrush="{StaticResource BorderColor}"
+                                          SelectionMode="Single"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto"
+                                          SelectionChanged="CaptureFilesDataGrid_SelectionChanged"
+                                          MouseDoubleClick="CaptureHistory_MouseDoubleClick">
+                                    <DataGrid.Columns>
+                                        <DataGridTemplateColumn Header="" Width="72">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="58"
+                                                            Height="40"
+                                                            Background="{StaticResource InputBackground}"
+                                                            BorderBrush="{StaticResource BorderColor}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="4"
+                                                            ClipToBounds="True">
+                                                        <Image Source="{Binding ThumbnailPath}"
+                                                               Stretch="UniformToFill" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                        <DataGridTextColumn Header="Date" Binding="{Binding CreatedLocalText}" Width="112" />
+                                        <DataGridTextColumn Header="Browser" Binding="{Binding Browser}" Width="74" />
+                                        <DataGridTextColumn Header="Element" Binding="{Binding TagName}" Width="72" />
+                                        <DataGridTextColumn Header="Selector" Binding="{Binding Selector}" Width="180" />
+                                        <DataGridTextColumn Header="Status" Binding="{Binding NoteStatus}" Width="92" />
+                                        <DataGridTextColumn Header="Severity" Binding="{Binding NoteSeverity}" Width="82" />
+                                        <DataGridTextColumn Header="URL" Binding="{Binding Url}" Width="260" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </TabItem>
+                        </TabControl>
 
                         <Border Grid.Row="4"
                                 Background="{StaticResource InputBackground}"
