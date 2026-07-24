@@ -335,6 +335,29 @@
                                    TextWrapping="Wrap"
                                    Foreground="{StaticResource MutedText}" />
 
+                        <TextBlock Text="Profile"
+                                   FontSize="13"
+                                   Foreground="{StaticResource MutedText}" />
+                        <ComboBox x:Name="UsageProfileComboBox"
+                                  DisplayMemberPath="DisplayName"
+                                  ToolTip="Choose which information Julco should prioritize for this workflow."
+                                  SelectionChanged="UsageProfileComboBox_SelectionChanged"
+                                  Margin="0,4,0,14" />
+
+                        <Border x:Name="UsageProfileHintBorder"
+                                Background="{StaticResource ListBackground}"
+                                BorderBrush="{StaticResource BorderColor}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8"
+                                Margin="0,0,0,14">
+                            <TextBlock x:Name="UsageProfileHintTextBlock"
+                                       Text="QA prioritizes issues, console signals, evidence, and comparison."
+                                       Foreground="{StaticResource MutedText}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap" />
+                        </Border>
+
                         <TextBlock Text="Tab"
                                    FontSize="13"
                                    Foreground="{StaticResource MutedText}" />
@@ -603,7 +626,7 @@
                         Grid.Column="2"
                         Background="{StaticResource PanelBackground}"
                         Foreground="{StaticResource PrimaryText}">
-                <TabItem Header="DOM">
+                <TabItem x:Name="DomTabItem" Header="DOM">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -680,7 +703,7 @@
                                  Margin="8,0,8,8" />
                     </Grid>
                 </TabItem>
-                <TabItem Header="Computed">
+                <TabItem x:Name="ComputedTabItem" Header="Computed">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -742,7 +765,7 @@
                                  Margin="8,0,8,8" />
                     </Grid>
                 </TabItem>
-                <TabItem Header="CSS Rules">
+                <TabItem x:Name="CssRulesTabItem" Header="CSS Rules">
                     <TextBox x:Name="RulesTextBox"
                              IsReadOnly="True"
                              AcceptsReturn="True"
@@ -750,7 +773,7 @@
                              HorizontalScrollBarVisibility="Auto"
                              FontFamily="Consolas" />
                 </TabItem>
-                <TabItem Header="Console">
+                <TabItem x:Name="ConsoleTabItem" Header="Console">
                     <TextBox x:Name="ConsoleTextBox"
                              IsReadOnly="True"
                              AcceptsReturn="True"
@@ -758,7 +781,7 @@
                              HorizontalScrollBarVisibility="Auto"
                              FontFamily="Consolas" />
                 </TabItem>
-                <TabItem Header="Attributes">
+                <TabItem x:Name="AttributesTabItem" Header="Attributes">
                     <TextBox x:Name="AttributesTextBox"
                              IsReadOnly="True"
                              AcceptsReturn="True"
@@ -766,7 +789,7 @@
                              HorizontalScrollBarVisibility="Auto"
                              FontFamily="Consolas" />
                 </TabItem>
-                <TabItem Header="Issues">
+                <TabItem x:Name="IssuesTabItem" Header="Issues">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />

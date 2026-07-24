@@ -40,13 +40,16 @@ public partial class MainWindow : Window
     private WebImageResource? _lastLensPreviewImage;
     private bool _isInspectingLens;
     private bool _isCompactMode;
+    private bool _isApplyingSettings;
     private string? _lastLiveLensHistoryKey;
     private AppSettings _settings = AppSettings.Default;
+    private IReadOnlyList<UsageProfileDefinition> _usageProfiles = Array.Empty<UsageProfileDefinition>();
 
     public MainWindow()
     {
         InitializeComponent();
         InitializeCaptureFilters();
+        InitializeUsageProfiles();
         _autoLensTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(550)
@@ -137,6 +140,30 @@ public partial class MainWindow : Window
     private void CompareCapturesButton_Click(object sender, RoutedEventArgs e) => CompareCaptures();
 
     private void ExportReportButton_Click(object sender, RoutedEventArgs e) => ExportSelectedCaptureReport();
+
+    private async void UsageProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isApplyingSettings)
+        {
+            return;
+        }
+
+        if (UsageProfileComboBox.SelectedItem is not UsageProfileDefinition profile)
+        {
+            return;
+        }
+
+        _settings = _settings with
+        {
+            Ui = _settings.Ui with
+            {
+                Profile = profile.Profile
+            }
+        };
+        ApplyUsageProfile(profile, selectPriorityTab: true);
+        await SaveSettingsAsync();
+        SetStatus($"Profile active: {profile.DisplayName}.");
+    }
 
     private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateCaptureNotesPreview();
 
@@ -1305,9 +1332,137 @@ public partial class MainWindow : Window
 
     private void ApplySettingsToUi()
     {
-        PortTextBox.Text = _settings.Ui.CdpPort.ToString();
-        _autoLensTimer.Interval = TimeSpan.FromMilliseconds(_settings.Ui.LensInspectionDelayMs);
-        ApplyTheme();
+        _isApplyingSettings = true;
+        try
+        {
+            PortTextBox.Text = _settings.Ui.CdpPort.ToString();
+            _autoLensTimer.Interval = TimeSpan.FromMilliseconds(_settings.Ui.LensInspectionDelayMs);
+            UsageProfileComboBox.SelectedItem = _usageProfiles.FirstOrDefault(profile => profile.Profile == _settings.Ui.Profile)
+                ?? _usageProfiles.First(profile => profile.Profile == UiSettings.Default.Profile);
+            ApplyTheme();
+            ApplyUsageProfile(GetActiveUsageProfile(), selectPriorityTab: false);
+        }
+        finally
+        {
+            _isApplyingSettings = false;
+        }
+    }
+
+    private void InitializeUsageProfiles()
+    {
+        _usageProfiles = new[]
+        {
+            new UsageProfileDefinition(
+                UsageProfile.QA,
+                "QA",
+                "Prioritizes reproducible issues, console signals, evidence packages, notes, and before/after comparison.",
+                "Check issues first, confirm console messages, capture evidence, add notes, then compare fixes.",
+                new[] { "Issues", "Console", "DOM", "Computed", "Attributes", "CSS Rules" },
+                new[] { "Evidence capture", "Notes", "Compare", "Report" }),
+            new UsageProfileDefinition(
+                UsageProfile.Frontend,
+                "Frontend",
+                "Prioritizes structure, selectors, computed CSS, matched rules, and fast copy/export actions.",
+                "Inspect selectors, review DOM and computed CSS, then copy exact HTML/CSS when implementing fixes.",
+                new[] { "Computed", "CSS Rules", "DOM", "Attributes", "Console", "Issues" },
+                new[] { "CSS", "DOM", "Copy CSS", "Copy HTML", "Report" }),
+            new UsageProfileDefinition(
+                UsageProfile.DesignReview,
+                "Design review",
+                "Prioritizes the lens frame, screenshot, image resources, sizing, visual attributes, and polished reports.",
+                "Frame the visual area, check images and sizing, capture evidence, then export a shareable report.",
+                new[] { "Attributes", "Computed", "Issues", "DOM", "CSS Rules", "Console" },
+                new[] { "Images", "Evidence capture", "Report", "Compare" }),
+            new UsageProfileDefinition(
+                UsageProfile.Accessibility,
+                "Accessibility",
+                "Prioritizes labels, alt text, roles, keyboard/accessibility risks, visibility, and contrast issues.",
+                "Start with detected issues, verify attributes and DOM semantics, then document impact in notes.",
+                new[] { "Issues", "Attributes", "DOM", "Computed", "Console", "CSS Rules" },
+                new[] { "Issues", "Attributes", "Notes", "Report" })
+        };
+
+        UsageProfileComboBox.ItemsSource = _usageProfiles;
+    }
+
+    private UsageProfileDefinition GetActiveUsageProfile()
+    {
+        return UsageProfileComboBox.SelectedItem as UsageProfileDefinition
+            ?? _usageProfiles.FirstOrDefault(profile => profile.Profile == _settings.Ui.Profile)
+            ?? _usageProfiles.First(profile => profile.Profile == UiSettings.Default.Profile);
+    }
+
+    private void ApplyUsageProfile(UsageProfileDefinition profile, bool selectPriorityTab)
+    {
+        UsageProfileHintTextBlock.Text = profile.Guidance;
+        InspectorHelpTextBlock.Text = profile.InspectorHelp;
+        CaptureLensButton.ToolTip = $"Evidence capture. {profile.Guidance}";
+        ExportReportButton.ToolTip = $"Export a polished report prioritized for {profile.DisplayName}.";
+        ReorderResultTabs(profile.TabPriority);
+        ApplyButtonPriority(profile.PrimaryActions);
+
+        if (selectPriorityTab && ResultsTabControl.Items.Count > 0)
+        {
+            ResultsTabControl.SelectedIndex = 0;
+        }
+    }
+
+    private void ReorderResultTabs(IReadOnlyList<string> priority)
+    {
+        var tabs = new Dictionary<string, TabItem>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DOM"] = DomTabItem,
+            ["Computed"] = ComputedTabItem,
+            ["CSS Rules"] = CssRulesTabItem,
+            ["Console"] = ConsoleTabItem,
+            ["Attributes"] = AttributesTabItem,
+            ["Issues"] = IssuesTabItem
+        };
+
+        var selected = ResultsTabControl.SelectedItem;
+        ResultsTabControl.Items.Clear();
+        foreach (var tabName in priority.Where(tabs.ContainsKey))
+        {
+            ResultsTabControl.Items.Add(tabs[tabName]);
+        }
+
+        foreach (var tab in tabs.Values.Where(tab => !ResultsTabControl.Items.Contains(tab)))
+        {
+            ResultsTabControl.Items.Add(tab);
+        }
+
+        if (selected is TabItem selectedTab && ResultsTabControl.Items.Contains(selectedTab))
+        {
+            ResultsTabControl.SelectedItem = selectedTab;
+        }
+        else if (ResultsTabControl.Items.Count > 0)
+        {
+            ResultsTabControl.SelectedIndex = 0;
+        }
+    }
+
+    private void ApplyButtonPriority(IReadOnlyList<string> primaryActions)
+    {
+        var labels = new Dictionary<System.Windows.Controls.Button, string>
+        {
+            [CaptureLensButton] = "Evidence capture",
+            [EditEvidenceNotesButton] = "Notes",
+            [CompareCapturesButton] = "Compare",
+            [ExportReportButton] = "Report",
+            [ShowImagesButton] = "Images",
+            [ShowIssuesButton] = "Issues",
+            [CopyHtmlButton] = "Copy HTML",
+            [CopyCssButton] = "Copy CSS"
+        };
+
+        foreach (var (button, label) in labels)
+        {
+            var isPrimary = primaryActions.Contains(label, StringComparer.OrdinalIgnoreCase);
+            button.BorderBrush = isPrimary
+                ? (System.Windows.Media.Brush)Resources["Accent"]
+                : (System.Windows.Media.Brush)Resources["BorderColor"];
+            button.FontWeight = isPrimary ? FontWeights.SemiBold : FontWeights.Normal;
+        }
     }
 
     private void ApplyTheme()
@@ -1841,7 +1996,7 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, "Building polished capture report...");
-            var report = CaptureReport.FromDirectory(capture.DirectoryPath);
+            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName);
             var reportDirectory = Path.Combine(capture.DirectoryPath, "report");
             Directory.CreateDirectory(reportDirectory);
 
@@ -1990,6 +2145,14 @@ public partial class MainWindow : Window
         Firefox
     }
 
+    private sealed record UsageProfileDefinition(
+        UsageProfile Profile,
+        string DisplayName,
+        string InspectorHelp,
+        string Guidance,
+        IReadOnlyList<string> TabPriority,
+        IReadOnlyList<string> PrimaryActions);
+
     private sealed record CaptureManifest(
         DateTimeOffset CreatedAt,
         string PageTitle,
@@ -2063,6 +2226,7 @@ public partial class MainWindow : Window
         string TargetType,
         string PageUrl,
         string PageTitle,
+        string UsageProfile,
         string TagName,
         string Selector,
         EvidenceFrameContext Frame,
@@ -2075,7 +2239,7 @@ public partial class MainWindow : Window
         string CommonIssues,
         IReadOnlyList<WebImageResource> Images)
     {
-        public static CaptureReport FromDirectory(string captureDirectory)
+        public static CaptureReport FromDirectory(string captureDirectory, string usageProfile)
         {
             var evidence = LoadJsonFile<EvidencePackage>(Path.Combine(captureDirectory, "evidence.json"));
             var manifest = evidence is null
@@ -2112,6 +2276,7 @@ public partial class MainWindow : Window
                 evidence?.Browser.TargetType ?? "-",
                 evidence?.Page.Url ?? manifest?.Url ?? "-",
                 title,
+                usageProfile,
                 evidence?.Element.TagName ?? manifest?.TagName ?? "-",
                 evidence?.Element.Selector ?? manifest?.Selector ?? "-",
                 frame,
@@ -2134,6 +2299,7 @@ public partial class MainWindow : Window
                 $"**Page:** {NormalizeMarkdownLine(PageTitle)}",
                 $"**URL:** {NormalizeMarkdownLine(PageUrl)}",
                 $"**Created:** {CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
+                $"**Profile:** {NormalizeMarkdownLine(UsageProfile)}",
                 string.Empty
             };
 
@@ -2152,6 +2318,7 @@ public partial class MainWindow : Window
                 $"| Browser | {NormalizeMarkdownLine(Browser)} |",
                 $"| Remote port | {NormalizeMarkdownLine(RemotePort)} |",
                 $"| Target type | {NormalizeMarkdownLine(TargetType)} |",
+                $"| Profile | {NormalizeMarkdownLine(UsageProfile)} |",
                 $"| Element | `{NormalizeMarkdownLine(TagName)}` |",
                 $"| Selector | `{NormalizeMarkdownLine(Selector)}` |",
                 $"| Lens frame | {Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0} |",
@@ -2242,6 +2409,7 @@ public partial class MainWindow : Window
                         {{Definition("Browser", Browser)}}
                         {{Definition("Remote port", RemotePort)}}
                         {{Definition("Target type", TargetType)}}
+                        {{Definition("Profile", UsageProfile)}}
                         {{Definition("Element", TagName)}}
                         {{Definition("Selector", Selector)}}
                         {{Definition("Lens frame", $"{Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0}")}}
@@ -2271,6 +2439,7 @@ public partial class MainWindow : Window
                 $"Page: {PageTitle}",
                 $"URL: {PageUrl}",
                 $"Created: {CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
+                $"Profile: {UsageProfile}",
                 $"Browser: {Browser} | Port: {RemotePort} | Target: {TargetType}",
                 $"Element: {TagName} | Selector: {Selector}",
                 $"Lens: {Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0} | Center: {Frame.CenterX:0},{Frame.CenterY:0}",

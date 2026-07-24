@@ -12,6 +12,7 @@ public sealed class ConfigurationTests
         var settings = AppSettings.Default;
 
         Assert.Equal(ThemeMode.Dark, settings.Theme);
+        Assert.Equal(UsageProfile.QA, settings.Ui.Profile);
         Assert.Equal("Win+Shift+D", settings.Capture.GlobalShortcut);
         Assert.Equal(ExportFormat.Json, settings.Export.DefaultFormat);
         Assert.True(settings.History.MaxEntries > 0);
