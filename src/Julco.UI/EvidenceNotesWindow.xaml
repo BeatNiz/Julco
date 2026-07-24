@@ -1,0 +1,68 @@
+<Window x:Class="Julco.UI.EvidenceNotesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Julco Evidence Notes"
+        Width="520"
+        Height="430"
+        MinWidth="420"
+        MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        Background="#101217"
+        Foreground="#F4F6F8">
+    <Window.Resources>
+        <SolidColorBrush x:Key="MutedText" Color="#AAB2C0" />
+        <SolidColorBrush x:Key="BorderColor" Color="#2A2F3A" />
+        <SolidColorBrush x:Key="InputBackground" Color="#050608" />
+        <SolidColorBrush x:Key="ControlBackground" Color="#202630" />
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Padding" Value="14,5" />
+            <Setter Property="Background" Value="{StaticResource ControlBackground}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="#F4F6F8" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Evidence notes"
+                       FontSize="18"
+                       FontWeight="SemiBold" />
+            <TextBlock Text="Add the observation, expected behavior, steps, severity, or any context that helps explain this capture."
+                       Foreground="{StaticResource MutedText}"
+                       TextWrapping="Wrap"
+                       Margin="0,5,0,14" />
+        </StackPanel>
+
+        <TextBox x:Name="NotesTextBox"
+                 Grid.Row="1"
+                 AcceptsReturn="True"
+                 AcceptsTab="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 Background="{StaticResource InputBackground}"
+                 Foreground="#F4F6F8"
+                 BorderBrush="{StaticResource BorderColor}"
+                 CaretBrush="#F4F6F8"
+                 Padding="10"
+                 FontFamily="Segoe UI"
+                 FontSize="13" />
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,14,0,0">
+            <Button Content="Skip"
+                    Click="SkipButton_Click"
+                    Margin="0,0,8,0" />
+            <Button Content="Save notes"
+                    Click="SaveButton_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

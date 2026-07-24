@@ -125,6 +125,8 @@ public partial class MainWindow : Window
 
     private void RefreshCapturesButton_Click(object sender, RoutedEventArgs e) => LoadCaptures();
 
+    private void EditEvidenceNotesButton_Click(object sender, RoutedEventArgs e) => EditSelectedEvidenceNotes();
+
     private void CopyHtmlButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentInspection is null)
@@ -462,9 +464,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        var notes = PromptForEvidenceNotes();
+
         try
         {
-            SetBusy(true, "Creating capture package...");
+            SetBusy(true, "Creating evidence package...");
             var state = _lastLensState;
             var inspection = await InspectScreenPointAsync(
                 target,
@@ -497,6 +501,26 @@ public partial class MainWindow : Window
                 Path.Combine(captureDirectory, "image-resources.json"),
                 JsonSerializer.Serialize(inspection.Images, jsonOptions));
 
+            var evidence = BuildEvidencePackage(
+                target,
+                inspection,
+                state,
+                notes,
+                "screenshot.png",
+                "inspection.json",
+                "dom.html",
+                "computed.css",
+                "console.txt",
+                "attributes.txt",
+                "image-resources.json");
+            File.WriteAllText(Path.Combine(captureDirectory, "notes.md"), notes);
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "evidence.json"),
+                JsonSerializer.Serialize(evidence, jsonOptions));
+            File.WriteAllText(
+                Path.Combine(captureDirectory, "evidence-summary.md"),
+                BuildEvidenceMarkdown(evidence));
+
             var manifest = new CaptureManifest(
                 DateTimeOffset.Now,
                 target.Title,
@@ -516,16 +540,158 @@ public partial class MainWindow : Window
 
             LoadCaptures();
             SelectCapture(captureDirectory);
-            SetStatus($"Capture saved: {captureDirectory}");
+            SetStatus($"Evidence package saved: {captureDirectory}");
         }
         catch (Exception exception)
         {
-            SetStatus($"Capture failed: {exception.Message}");
+            SetStatus($"Evidence capture failed: {exception.Message}");
         }
         finally
         {
             SetBusy(false);
         }
+    }
+
+    private string PromptForEvidenceNotes(string existingNotes = "")
+    {
+        var window = new EvidenceNotesWindow(existingNotes)
+        {
+            Owner = this,
+            Topmost = _settings.Ui.KeepResultWindowsTopmost
+        };
+
+        return window.ShowDialog() == true
+            ? window.Notes
+            : existingNotes;
+    }
+
+    private EvidencePackage BuildEvidencePackage(
+        CdpTarget target,
+        SelectorInspectionResult inspection,
+        LensFrameState state,
+        string notes,
+        string screenshotFile,
+        string inspectionFile,
+        string domFile,
+        string computedCssFile,
+        string consoleFile,
+        string attributesFile,
+        string imagesFile)
+    {
+        var now = DateTimeOffset.Now;
+        var browser = _activeBrowser?.ToString() ?? InferBrowserName(target);
+        var screen = Forms.Screen.FromPoint(new System.Drawing.Point(
+            (int)Math.Round(state.CenterPoint.X),
+            (int)Math.Round(state.CenterPoint.Y)));
+
+        return new EvidencePackage(
+            "1.0",
+            now,
+            new EvidenceBrowserContext(
+                browser,
+                target.Type,
+                PortTextBox.Text.Trim(),
+                target.Id),
+            new EvidencePageContext(
+                target.Title,
+                target.Url),
+            new EvidenceElementContext(
+                inspection.TagName,
+                inspection.Selector,
+                inspection.Attributes,
+                inspection.Images.Count,
+                inspection.ConsoleMessages.Count),
+            new EvidenceFrameContext(
+                state.Bounds.X,
+                state.Bounds.Y,
+                state.Bounds.Width,
+                state.Bounds.Height,
+                state.CenterPoint.X,
+                state.CenterPoint.Y,
+                screen.DeviceName,
+                screen.Bounds.Width,
+                screen.Bounds.Height),
+            new EvidenceFiles(
+                screenshotFile,
+                inspectionFile,
+                domFile,
+                computedCssFile,
+                consoleFile,
+                attributesFile,
+                imagesFile,
+                "notes.md",
+                "evidence-summary.md"),
+            notes);
+    }
+
+    private static string InferBrowserName(CdpTarget target)
+    {
+        if (target.Type.Equals("firefox-page", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Firefox";
+        }
+
+        return "Chromium-compatible";
+    }
+
+    private static string BuildEvidenceMarkdown(EvidencePackage evidence)
+    {
+        var lines = new List<string>
+        {
+            "# Julco Evidence Package",
+            string.Empty,
+            "## Summary",
+            $"- Created: {evidence.CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
+            $"- Browser: {evidence.Browser.Name}",
+            $"- Remote port: {evidence.Browser.RemotePort}",
+            $"- Page title: {NormalizeMarkdownLine(evidence.Page.Title)}",
+            $"- URL: {NormalizeMarkdownLine(evidence.Page.Url)}",
+            $"- Element: {evidence.Element.TagName}  {NormalizeMarkdownLine(evidence.Element.Selector)}",
+            $"- Lens frame: {evidence.Frame.Width:0}x{evidence.Frame.Height:0} at {evidence.Frame.X:0},{evidence.Frame.Y:0}",
+            $"- Center: {evidence.Frame.CenterX:0},{evidence.Frame.CenterY:0}",
+            $"- Screen: {NormalizeMarkdownLine(evidence.Frame.ScreenName)} ({evidence.Frame.ScreenWidth}x{evidence.Frame.ScreenHeight})",
+            string.Empty,
+            "## Notes",
+            string.IsNullOrWhiteSpace(evidence.Notes) ? "_No notes added._" : evidence.Notes,
+            string.Empty,
+            "## Files",
+            $"- Screenshot: `{evidence.Files.Screenshot}`",
+            $"- Full inspection JSON: `{evidence.Files.Inspection}`",
+            $"- DOM: `{evidence.Files.Dom}`",
+            $"- Computed CSS: `{evidence.Files.ComputedCss}`",
+            $"- Console: `{evidence.Files.Console}`",
+            $"- Attributes: `{evidence.Files.Attributes}`",
+            $"- Image resources: `{evidence.Files.Images}`",
+            $"- Notes: `{evidence.Files.Notes}`",
+            string.Empty,
+            "## Element Attributes"
+        };
+
+        if (evidence.Element.Attributes.Count == 0)
+        {
+            lines.Add("_No attributes captured._");
+        }
+        else
+        {
+            foreach (var attribute in evidence.Element.Attributes.OrderBy(item => item.Key))
+            {
+                lines.Add($"- `{attribute.Key}`: {NormalizeMarkdownLine(attribute.Value)}");
+            }
+        }
+
+        lines.Add(string.Empty);
+        lines.Add("## Counts");
+        lines.Add($"- Console messages: {evidence.Element.ConsoleMessageCount}");
+        lines.Add($"- Image resources: {evidence.Element.ImageResourceCount}");
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string NormalizeMarkdownLine(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? "-"
+            : value.ReplaceLineEndings(" ").Trim();
     }
 
     private async Task CaptureRegionAsync(LensFrameState state, string screenshotPath)
@@ -1265,6 +1431,49 @@ public partial class MainWindow : Window
         SetStatus("Capture deleted.");
     }
 
+    private void EditSelectedEvidenceNotes()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select an evidence package first.");
+            return;
+        }
+
+        var notesPath = Path.Combine(capture.DirectoryPath, "notes.md");
+        var evidencePath = Path.Combine(capture.DirectoryPath, "evidence.json");
+        var summaryPath = Path.Combine(capture.DirectoryPath, "evidence-summary.md");
+        var notes = File.Exists(notesPath)
+            ? File.ReadAllText(notesPath)
+            : string.Empty;
+        var updatedNotes = PromptForEvidenceNotes(notes);
+
+        File.WriteAllText(notesPath, updatedNotes);
+
+        if (File.Exists(evidencePath))
+        {
+            try
+            {
+                var evidence = JsonSerializer.Deserialize<EvidencePackage>(File.ReadAllText(evidencePath));
+                if (evidence is not null)
+                {
+                    evidence = evidence with { Notes = updatedNotes };
+                    var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+                    File.WriteAllText(evidencePath, JsonSerializer.Serialize(evidence, jsonOptions));
+                    File.WriteAllText(summaryPath, BuildEvidenceMarkdown(evidence));
+                }
+            }
+            catch (JsonException)
+            {
+                SetStatus("Notes saved, but evidence.json could not be updated.");
+                return;
+            }
+        }
+
+        LoadCaptures();
+        SelectCapture(capture.DirectoryPath);
+        SetStatus("Evidence notes saved.");
+    }
+
     private void SetBusy(bool isBusy, string? message = null)
     {
         LaunchChromeButton.IsEnabled = !isBusy;
@@ -1281,6 +1490,7 @@ public partial class MainWindow : Window
         RenameCaptureButton.IsEnabled = !isBusy;
         DeleteCaptureButton.IsEnabled = !isBusy;
         RefreshCapturesButton.IsEnabled = !isBusy;
+        EditEvidenceNotesButton.IsEnabled = !isBusy;
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
@@ -1394,6 +1604,55 @@ public partial class MainWindow : Window
         string Screenshot,
         string Inspection);
 
+    private sealed record EvidencePackage(
+        string Version,
+        DateTimeOffset CreatedAt,
+        EvidenceBrowserContext Browser,
+        EvidencePageContext Page,
+        EvidenceElementContext Element,
+        EvidenceFrameContext Frame,
+        EvidenceFiles Files,
+        string Notes);
+
+    private sealed record EvidenceBrowserContext(
+        string Name,
+        string TargetType,
+        string RemotePort,
+        string TargetId);
+
+    private sealed record EvidencePageContext(
+        string Title,
+        string Url);
+
+    private sealed record EvidenceElementContext(
+        string TagName,
+        string Selector,
+        IReadOnlyDictionary<string, string> Attributes,
+        int ImageResourceCount,
+        int ConsoleMessageCount);
+
+    private sealed record EvidenceFrameContext(
+        double X,
+        double Y,
+        double Width,
+        double Height,
+        double CenterX,
+        double CenterY,
+        string ScreenName,
+        int ScreenWidth,
+        int ScreenHeight);
+
+    private sealed record EvidenceFiles(
+        string Screenshot,
+        string Inspection,
+        string Dom,
+        string ComputedCss,
+        string Console,
+        string Attributes,
+        string Images,
+        string Notes,
+        string Summary);
+
     private sealed record CaptureFileRecord(
         string DirectoryPath,
         string DisplayName,
@@ -1401,6 +1660,26 @@ public partial class MainWindow : Window
     {
         public static CaptureFileRecord FromDirectory(string directoryPath)
         {
+            var evidencePath = Path.Combine(directoryPath, "evidence.json");
+            if (File.Exists(evidencePath))
+            {
+                try
+                {
+                    var evidence = JsonSerializer.Deserialize<EvidencePackage>(File.ReadAllText(evidencePath));
+                    if (evidence is not null)
+                    {
+                        var noteMarker = string.IsNullOrWhiteSpace(evidence.Notes) ? string.Empty : "  notes";
+                        return new CaptureFileRecord(
+                            directoryPath,
+                            $"{evidence.CreatedAt:MM-dd HH:mm}  evidence  {evidence.Element.TagName}  {evidence.Element.Selector}{noteMarker}",
+                            evidence.CreatedAt);
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+            }
+
             var manifestPath = Path.Combine(directoryPath, "manifest.json");
             if (File.Exists(manifestPath))
             {
