@@ -545,6 +545,11 @@
                                     ToolTip="Compare the selected capture against another capture visually and technically."
                                     Click="CompareCapturesButton_Click"
                                     Margin="4,4,0,0" />
+                            <Button x:Name="ExportReportButton"
+                                    Content="Report"
+                                    ToolTip="Export a polished HTML, PDF, and Markdown report for the selected capture."
+                                    Click="ExportReportButton_Click"
+                                    Margin="0,4,4,0" />
                         </UniformGrid>
                         <UniformGrid x:Name="ResultActionsGrid"
                                      Columns="2"

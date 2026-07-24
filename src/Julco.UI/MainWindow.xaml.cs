@@ -1,5 +1,8 @@
 using System.IO;
 using System.Diagnostics;
+using System.Globalization;
+using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -132,6 +135,8 @@ public partial class MainWindow : Window
     private void EditEvidenceNotesButton_Click(object sender, RoutedEventArgs e) => EditSelectedEvidenceNotes();
 
     private void CompareCapturesButton_Click(object sender, RoutedEventArgs e) => CompareCaptures();
+
+    private void ExportReportButton_Click(object sender, RoutedEventArgs e) => ExportSelectedCaptureReport();
 
     private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateCaptureNotesPreview();
 
@@ -1159,6 +1164,7 @@ public partial class MainWindow : Window
         RefreshCapturesButton.Content = compact ? "Load" : "Reload";
         EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
         CompareCapturesButton.Content = compact ? "Diff" : "Compare";
+        ExportReportButton.Content = compact ? "Rpt" : "Report";
         ShowIssuesButton.Content = compact ? "Audit" : "Issues";
 
         foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
@@ -1824,6 +1830,46 @@ public partial class MainWindow : Window
         SetStatus("Capture comparison opened.");
     }
 
+    private void ExportSelectedCaptureReport()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture before exporting a report.");
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Building polished capture report...");
+            var report = CaptureReport.FromDirectory(capture.DirectoryPath);
+            var reportDirectory = Path.Combine(capture.DirectoryPath, "report");
+            Directory.CreateDirectory(reportDirectory);
+
+            var markdownPath = Path.Combine(reportDirectory, "report.md");
+            var htmlPath = Path.Combine(reportDirectory, "report.html");
+            var pdfPath = Path.Combine(reportDirectory, "report.pdf");
+
+            File.WriteAllText(markdownPath, report.BuildMarkdown(), Encoding.UTF8);
+            File.WriteAllText(htmlPath, report.BuildHtml(), Encoding.UTF8);
+            SimplePdfReportWriter.Write(pdfPath, report);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = reportDirectory,
+                UseShellExecute = true
+            });
+            SetStatus($"Report exported: {reportDirectory}");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Report export failed: {exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void SetBusy(bool isBusy, string? message = null)
     {
         LaunchChromeButton.IsEnabled = !isBusy;
@@ -1842,6 +1888,7 @@ public partial class MainWindow : Window
         RefreshCapturesButton.IsEnabled = !isBusy;
         EditEvidenceNotesButton.IsEnabled = !isBusy;
         CompareCapturesButton.IsEnabled = !isBusy;
+        ExportReportButton.IsEnabled = !isBusy;
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
@@ -2006,6 +2053,530 @@ public partial class MainWindow : Window
         string StructuredNotes,
         string Notes,
         string Summary);
+
+    private sealed record CaptureReport(
+        string CaptureDirectory,
+        string Title,
+        DateTimeOffset CreatedAt,
+        string Browser,
+        string RemotePort,
+        string TargetType,
+        string PageUrl,
+        string PageTitle,
+        string TagName,
+        string Selector,
+        EvidenceFrameContext Frame,
+        CaptureNotes Notes,
+        string ScreenshotPath,
+        string Dom,
+        string ComputedCss,
+        string Console,
+        string Attributes,
+        string CommonIssues,
+        IReadOnlyList<WebImageResource> Images)
+    {
+        public static CaptureReport FromDirectory(string captureDirectory)
+        {
+            var evidence = LoadJsonFile<EvidencePackage>(Path.Combine(captureDirectory, "evidence.json"));
+            var manifest = evidence is null
+                ? LoadJsonFile<CaptureManifest>(Path.Combine(captureDirectory, "manifest.json"))
+                : null;
+            var notes = evidence?.StructuredNotes ?? LoadCaptureNotes(captureDirectory);
+            var screenshot = ResolvePath(captureDirectory, evidence?.Files.Screenshot ?? manifest?.Screenshot ?? "screenshot.png");
+            var createdAt = evidence?.CreatedAt
+                ?? manifest?.CreatedAt
+                ?? new DateTimeOffset(Directory.GetCreationTime(captureDirectory));
+            var frame = evidence?.Frame ?? new EvidenceFrameContext(
+                manifest?.X ?? 0,
+                manifest?.Y ?? 0,
+                manifest?.Width ?? 0,
+                manifest?.Height ?? 0,
+                (manifest?.X ?? 0) + ((manifest?.Width ?? 0) / 2),
+                (manifest?.Y ?? 0) + ((manifest?.Height ?? 0) / 2),
+                "Unknown",
+                0,
+                0);
+            var images = LoadJsonFile<WebImageResource[]>(
+                    ResolvePath(captureDirectory, evidence?.Files.Images ?? "image-resources.json"))
+                ?? Array.Empty<WebImageResource>();
+            var title = evidence?.Page.Title
+                ?? manifest?.PageTitle
+                ?? Path.GetFileName(captureDirectory);
+
+            return new CaptureReport(
+                captureDirectory,
+                string.IsNullOrWhiteSpace(title) ? "Julco Capture Report" : title,
+                createdAt,
+                evidence?.Browser.Name ?? "Unknown",
+                evidence?.Browser.RemotePort ?? "-",
+                evidence?.Browser.TargetType ?? "-",
+                evidence?.Page.Url ?? manifest?.Url ?? "-",
+                title,
+                evidence?.Element.TagName ?? manifest?.TagName ?? "-",
+                evidence?.Element.Selector ?? manifest?.Selector ?? "-",
+                frame,
+                notes,
+                File.Exists(screenshot) ? screenshot : string.Empty,
+                ReadText(ResolvePath(captureDirectory, evidence?.Files.Dom ?? "dom.html")),
+                ReadText(ResolvePath(captureDirectory, evidence?.Files.ComputedCss ?? "computed.css")),
+                ReadText(ResolvePath(captureDirectory, evidence?.Files.Console ?? "console.txt")),
+                ReadText(ResolvePath(captureDirectory, evidence?.Files.Attributes ?? "attributes.txt")),
+                ReadText(Path.Combine(captureDirectory, "common-issues.md")),
+                images);
+        }
+
+        public string BuildMarkdown()
+        {
+            var lines = new List<string>
+            {
+                "# Julco Capture Report",
+                string.Empty,
+                $"**Page:** {NormalizeMarkdownLine(PageTitle)}",
+                $"**URL:** {NormalizeMarkdownLine(PageUrl)}",
+                $"**Created:** {CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
+                string.Empty
+            };
+
+            if (!string.IsNullOrWhiteSpace(ScreenshotPath))
+            {
+                lines.Add("![Capture screenshot](../screenshot.png)");
+                lines.Add(string.Empty);
+            }
+
+            lines.AddRange(new[]
+            {
+                "## Technical Summary",
+                string.Empty,
+                "| Field | Value |",
+                "| --- | --- |",
+                $"| Browser | {NormalizeMarkdownLine(Browser)} |",
+                $"| Remote port | {NormalizeMarkdownLine(RemotePort)} |",
+                $"| Target type | {NormalizeMarkdownLine(TargetType)} |",
+                $"| Element | `{NormalizeMarkdownLine(TagName)}` |",
+                $"| Selector | `{NormalizeMarkdownLine(Selector)}` |",
+                $"| Lens frame | {Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0} |",
+                $"| Center | {Frame.CenterX:0},{Frame.CenterY:0} |",
+                $"| Screen | {NormalizeMarkdownLine(Frame.ScreenName)} {Frame.ScreenWidth}x{Frame.ScreenHeight} |",
+                $"| Image resources | {Images.Count} |",
+                string.Empty,
+                "## Notes",
+                string.Empty,
+                Notes.HasContent ? Notes.ToMarkdown() : "_No notes added._",
+                string.Empty,
+                "## Common Issues",
+                string.Empty,
+                string.IsNullOrWhiteSpace(CommonIssues) ? "_No issue report found._" : CommonIssues,
+                string.Empty,
+                "## Attributes",
+                string.Empty,
+                CodeBlock(Attributes, "text"),
+                string.Empty,
+                "## Computed CSS",
+                string.Empty,
+                CodeBlock(ComputedCss, "css"),
+                string.Empty,
+                "## DOM",
+                string.Empty,
+                CodeBlock(Dom, "html")
+            });
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        public string BuildHtml()
+        {
+            var screenshotMarkup = string.IsNullOrWhiteSpace(ScreenshotPath)
+                ? "<div class=\"empty\">No screenshot found.</div>"
+                : "<img class=\"screenshot\" src=\"../screenshot.png\" alt=\"Capture screenshot\" />";
+            var notesMarkup = Notes.HasContent
+                ? $"<dl>{Definition("Category", Notes.Category)}{Definition("Severity", Notes.Severity)}{Definition("Status", Notes.Status)}{Definition("Tags", Notes.Tags)}</dl><p>{EscapeHtml(Notes.Observation)}</p>"
+                : "<p class=\"empty\">No notes added.</p>";
+            var imageRows = Images.Count == 0
+                ? "<tr><td colspan=\"5\">No image resources detected.</td></tr>"
+                : string.Join(Environment.NewLine, Images.Take(80).Select(image =>
+                    $"<tr><td>{EscapeHtml(image.Kind)}</td><td>{EscapeHtml(image.Format)}</td><td>{image.DisplayedWidth}x{image.DisplayedHeight}</td><td>{image.NaturalWidth}x{image.NaturalHeight}</td><td><code>{EscapeHtml(Shorten(image.Url, 120))}</code></td></tr>"));
+
+            return $$"""
+                <!doctype html>
+                <html lang="en">
+                <head>
+                  <meta charset="utf-8" />
+                  <meta name="viewport" content="width=device-width, initial-scale=1" />
+                  <title>Julco Capture Report</title>
+                  <style>
+                    :root { color-scheme: dark; --bg:#0f1218; --panel:#181d26; --ink:#f5f7fb; --muted:#aeb8c8; --line:#2d3645; --accent:#41c7ff; --soft:#111722; }
+                    * { box-sizing: border-box; }
+                    body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 "Segoe UI", Arial, sans-serif; }
+                    main { max-width:1120px; margin:0 auto; padding:32px; }
+                    header { border-bottom:1px solid var(--line); padding-bottom:18px; margin-bottom:24px; }
+                    h1 { margin:0 0 6px; font-size:30px; letter-spacing:0; }
+                    h2 { margin:0 0 12px; font-size:18px; color:var(--accent); }
+                    .muted { color:var(--muted); }
+                    .hero { display:grid; grid-template-columns:minmax(280px, 1.2fr) minmax(260px, .8fr); gap:18px; align-items:start; }
+                    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-bottom:18px; }
+                    .screenshot { width:100%; max-height:520px; object-fit:contain; background:#05070a; border:1px solid var(--line); border-radius:6px; }
+                    dl { display:grid; grid-template-columns:130px 1fr; gap:8px 14px; margin:0; }
+                    dt { color:var(--muted); }
+                    dd { margin:0; word-break:break-word; }
+                    code, pre { font-family:Consolas, "Cascadia Mono", monospace; }
+                    pre { max-height:360px; overflow:auto; padding:14px; border-radius:6px; background:#05070a; border:1px solid var(--line); white-space:pre-wrap; }
+                    table { width:100%; border-collapse:collapse; }
+                    th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px; vertical-align:top; }
+                    th { color:var(--accent); font-weight:600; }
+                    .empty { color:var(--muted); padding:18px; border:1px dashed var(--line); border-radius:6px; }
+                    @media (max-width: 760px) { main { padding:18px; } .hero { grid-template-columns:1fr; } dl { grid-template-columns:1fr; } }
+                  </style>
+                </head>
+                <body>
+                <main>
+                  <header>
+                    <h1>Julco Capture Report</h1>
+                    <div class="muted">{{EscapeHtml(PageTitle)}} · {{EscapeHtml(CreatedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"))}}</div>
+                  </header>
+                  <section class="hero">
+                    <div class="panel">{{screenshotMarkup}}</div>
+                    <div class="panel">
+                      <h2>Technical Summary</h2>
+                      <dl>
+                        {{Definition("URL", PageUrl)}}
+                        {{Definition("Browser", Browser)}}
+                        {{Definition("Remote port", RemotePort)}}
+                        {{Definition("Target type", TargetType)}}
+                        {{Definition("Element", TagName)}}
+                        {{Definition("Selector", Selector)}}
+                        {{Definition("Lens frame", $"{Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0}")}}
+                        {{Definition("Center", $"{Frame.CenterX:0},{Frame.CenterY:0}")}}
+                        {{Definition("Screen", $"{Frame.ScreenName} {Frame.ScreenWidth}x{Frame.ScreenHeight}")}}
+                        {{Definition("Images", Images.Count.ToString(CultureInfo.InvariantCulture))}}
+                      </dl>
+                    </div>
+                  </section>
+                  <section class="panel"><h2>Notes</h2>{{notesMarkup}}</section>
+                  <section class="panel"><h2>Common Issues</h2><pre>{{EscapeHtml(string.IsNullOrWhiteSpace(CommonIssues) ? "No issue report found." : CommonIssues)}}</pre></section>
+                  <section class="panel"><h2>Image Resources</h2><table><thead><tr><th>Kind</th><th>Format</th><th>Shown</th><th>Natural</th><th>URL</th></tr></thead><tbody>{{imageRows}}</tbody></table></section>
+                  <section class="panel"><h2>Attributes</h2><pre>{{EscapeHtml(Attributes)}}</pre></section>
+                  <section class="panel"><h2>Computed CSS</h2><pre>{{EscapeHtml(ComputedCss)}}</pre></section>
+                  <section class="panel"><h2>DOM</h2><pre>{{EscapeHtml(Dom)}}</pre></section>
+                </main>
+                </body>
+                </html>
+                """;
+        }
+
+        public IReadOnlyList<string> BuildPdfLines()
+        {
+            var lines = new List<string>
+            {
+                "Julco Capture Report",
+                $"Page: {PageTitle}",
+                $"URL: {PageUrl}",
+                $"Created: {CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
+                $"Browser: {Browser} | Port: {RemotePort} | Target: {TargetType}",
+                $"Element: {TagName} | Selector: {Selector}",
+                $"Lens: {Frame.Width:0}x{Frame.Height:0} at {Frame.X:0},{Frame.Y:0} | Center: {Frame.CenterX:0},{Frame.CenterY:0}",
+                $"Screen: {Frame.ScreenName} {Frame.ScreenWidth}x{Frame.ScreenHeight}",
+                string.Empty,
+                "Notes",
+                Notes.HasContent ? Notes.ShortSummary : "No notes added.",
+                string.IsNullOrWhiteSpace(Notes.Observation) ? string.Empty : Notes.Observation,
+                string.Empty,
+                "Common Issues",
+                string.IsNullOrWhiteSpace(CommonIssues) ? "No issue report found." : CommonIssues,
+                string.Empty,
+                "Attributes",
+                Attributes,
+                string.Empty,
+                "Computed CSS",
+                ComputedCss,
+                string.Empty,
+                "DOM preview",
+                Shorten(Dom, 5000)
+            };
+
+            return lines
+                .SelectMany(line => WrapLine(line.ReplaceLineEndings(" "), 96))
+                .ToArray();
+        }
+
+        private static T? LoadJsonFile<T>(string path)
+        {
+            if (!File.Exists(path))
+            {
+                return default;
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<T>(File.ReadAllText(path));
+            }
+            catch (JsonException)
+            {
+                return default;
+            }
+        }
+
+        private static string ResolvePath(string captureDirectory, string? relativeOrAbsolute)
+        {
+            if (string.IsNullOrWhiteSpace(relativeOrAbsolute))
+            {
+                return captureDirectory;
+            }
+
+            return Path.IsPathRooted(relativeOrAbsolute)
+                ? relativeOrAbsolute
+                : Path.Combine(captureDirectory, relativeOrAbsolute);
+        }
+
+        private static string ReadText(string path)
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        }
+
+        private static string CodeBlock(string content, string language)
+        {
+            return $"```{language}{Environment.NewLine}{content.Trim()}{Environment.NewLine}```";
+        }
+
+        private static string Definition(string key, string? value)
+        {
+            return $"<dt>{EscapeHtml(key)}</dt><dd>{EscapeHtml(string.IsNullOrWhiteSpace(value) ? "-" : value)}</dd>";
+        }
+
+        private static string EscapeHtml(string? value)
+        {
+            return WebUtility.HtmlEncode(value ?? string.Empty);
+        }
+
+        private static string Shorten(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
+            {
+                return value ?? string.Empty;
+            }
+
+            return value[..Math.Max(0, maxLength - 1)] + "...";
+        }
+
+        private static IEnumerable<string> WrapLine(string line, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                yield return string.Empty;
+                yield break;
+            }
+
+            var remaining = line.Trim();
+            while (remaining.Length > maxLength)
+            {
+                var splitAt = remaining.LastIndexOf(' ', Math.Min(maxLength, remaining.Length - 1));
+                if (splitAt < maxLength / 2)
+                {
+                    splitAt = maxLength;
+                }
+
+                yield return remaining[..splitAt].Trim();
+                remaining = remaining[splitAt..].Trim();
+            }
+
+            if (remaining.Length > 0)
+            {
+                yield return remaining;
+            }
+        }
+    }
+
+    private static class SimplePdfReportWriter
+    {
+        public static void Write(string path, CaptureReport report)
+        {
+            var image = PdfImage.TryLoad(report.ScreenshotPath);
+            var lines = report.BuildPdfLines();
+            var pages = lines.Chunk(42).ToArray();
+            if (pages.Length == 0)
+            {
+                pages = new[] { Array.Empty<string>() };
+            }
+
+            var hasImage = image is not null;
+            var pageCount = pages.Length;
+            var fontId = 3;
+            var imageId = hasImage ? 4 : 0;
+            var firstPageId = hasImage ? 5 : 4;
+            var objectCount = firstPageId + (pageCount * 2) - 1;
+            var pageIds = Enumerable.Range(0, pageCount)
+                .Select(index => firstPageId + (index * 2))
+                .ToArray();
+
+            var objects = new byte[objectCount + 1][];
+            objects[1] = Ascii("<< /Type /Catalog /Pages 2 0 R >>");
+            objects[2] = Ascii($"<< /Type /Pages /Kids [{string.Join(" ", pageIds.Select(id => $"{id} 0 R"))}] /Count {pageCount} >>");
+            objects[3] = Ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+            if (hasImage)
+            {
+                objects[imageId] = BuildImageObject(image!);
+            }
+
+            for (var index = 0; index < pageCount; index++)
+            {
+                var pageId = pageIds[index];
+                var contentId = pageId + 1;
+                var resources = hasImage
+                    ? $"<< /Font << /F1 {fontId} 0 R >> /XObject << /Im1 {imageId} 0 R >> >>"
+                    : $"<< /Font << /F1 {fontId} 0 R >> >>";
+                objects[pageId] = Ascii($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources {resources} /Contents {contentId} 0 R >>");
+                objects[contentId] = BuildContentObject(pages[index], image, index == 0);
+            }
+
+            using var stream = File.Create(path);
+            WriteAscii(stream, "%PDF-1.4\n%Julco\n");
+            var offsets = new long[objects.Length];
+            for (var id = 1; id < objects.Length; id++)
+            {
+                offsets[id] = stream.Position;
+                WriteAscii(stream, $"{id} 0 obj\n");
+                stream.Write(objects[id]);
+                WriteAscii(stream, "\nendobj\n");
+            }
+
+            var xref = stream.Position;
+            WriteAscii(stream, $"xref\n0 {objects.Length}\n0000000000 65535 f \n");
+            for (var id = 1; id < objects.Length; id++)
+            {
+                WriteAscii(stream, $"{offsets[id]:0000000000} 00000 n \n");
+            }
+
+            WriteAscii(stream, $"trailer\n<< /Size {objects.Length} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF");
+        }
+
+        private static byte[] BuildContentObject(string[] lines, PdfImage? image, bool includeImage)
+        {
+            using var content = new MemoryStream();
+            if (includeImage && image is not null)
+            {
+                var maxWidth = 470.0;
+                var maxHeight = 245.0;
+                var scale = Math.Min(maxWidth / image.Width, maxHeight / image.Height);
+                var width = image.Width * scale;
+                var height = image.Height * scale;
+                var x = (612 - width) / 2;
+                var y = 792 - height - 42;
+                WriteAscii(content, FormattableString.Invariant($"q {width:0.##} 0 0 {height:0.##} {x:0.##} {y:0.##} cm /Im1 Do Q\n"));
+            }
+
+            var startY = includeImage && image is not null ? 480 : 742;
+            WriteAscii(content, "BT /F1 10 Tf 46 ");
+            WriteAscii(content, startY.ToString(CultureInfo.InvariantCulture));
+            WriteAscii(content, " Td 14 TL\n");
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    WriteAscii(content, "T*\n");
+                    continue;
+                }
+
+                WriteAscii(content, $"{ToPdfHexString(line)} Tj T*\n");
+            }
+
+            WriteAscii(content, "ET\n");
+            return WrapStream(content.ToArray());
+        }
+
+        private static byte[] BuildImageObject(PdfImage image)
+        {
+            var header = Ascii($"<< /Type /XObject /Subtype /Image /Width {image.Width} /Height {image.Height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {image.Rgb.Length} >>\nstream\n");
+            var footer = Ascii("\nendstream");
+            return Combine(header, image.Rgb, footer);
+        }
+
+        private static byte[] WrapStream(byte[] content)
+        {
+            return Combine(
+                Ascii($"<< /Length {content.Length} >>\nstream\n"),
+                content,
+                Ascii("\nendstream"));
+        }
+
+        private static string ToPdfHexString(string value)
+        {
+            var bytes = Encoding.BigEndianUnicode.GetBytes(value);
+            var builder = new StringBuilder("<FEFF", 4 + (bytes.Length * 2) + 1);
+            foreach (var b in bytes)
+            {
+                builder.Append(b.ToString("X2", CultureInfo.InvariantCulture));
+            }
+
+            builder.Append('>');
+            return builder.ToString();
+        }
+
+        private static byte[] Combine(params byte[][] parts)
+        {
+            var length = parts.Sum(part => part.Length);
+            var result = new byte[length];
+            var offset = 0;
+            foreach (var part in parts)
+            {
+                Buffer.BlockCopy(part, 0, result, offset, part.Length);
+                offset += part.Length;
+            }
+
+            return result;
+        }
+
+        private static byte[] Ascii(string value)
+        {
+            return Encoding.ASCII.GetBytes(value);
+        }
+
+        private static void WriteAscii(Stream stream, string value)
+        {
+            var bytes = Ascii(value);
+            stream.Write(bytes);
+        }
+
+        private sealed record PdfImage(int Width, int Height, byte[] Rgb)
+        {
+            public static PdfImage? TryLoad(string path)
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    return null;
+                }
+
+                try
+                {
+                    using var source = new System.Drawing.Bitmap(path);
+                    using var bitmap = new System.Drawing.Bitmap(source.Width, source.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+                    using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+                    {
+                        graphics.Clear(System.Drawing.Color.White);
+                        graphics.DrawImage(source, 0, 0, source.Width, source.Height);
+                    }
+
+                    var bytes = new byte[bitmap.Width * bitmap.Height * 3];
+                    var offset = 0;
+                    for (var y = 0; y < bitmap.Height; y++)
+                    {
+                        for (var x = 0; x < bitmap.Width; x++)
+                        {
+                            var pixel = bitmap.GetPixel(x, y);
+                            bytes[offset++] = pixel.R;
+                            bytes[offset++] = pixel.G;
+                            bytes[offset++] = pixel.B;
+                        }
+                    }
+
+                    return new PdfImage(bitmap.Width, bitmap.Height, bytes);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+    }
 
     private sealed record CaptureFileRecord(
         string DirectoryPath,
