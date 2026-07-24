@@ -1,6 +1,5 @@
 using System.IO;
 using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 using System.ComponentModel;
 using System.Windows;
@@ -27,13 +26,16 @@ public partial class MainWindow : Window
     private readonly FirefoxBidiInspectionService _firefoxInspectionService = new();
     private readonly JsonSettingsStore _settingsStore = new(GetSettingsPath());
     private readonly List<string> _history = new();
-    private readonly List<CaptureFileRecord> _captureFiles = new();
-    private readonly List<CaptureFileRecord> _filteredCaptureFiles = new();
+    private readonly CaptureHistoryViewModel _captureHistory = new();
     private readonly GlobalHotkeyService _globalHotkeys = new();
+    private readonly HealthStatusService _healthStatusService = new();
+    private readonly CaptureWorkflowService _captureWorkflowService = new();
+    private readonly ReportWorkflowService _reportWorkflowService = new();
+    private readonly IssueTrackerWorkflowService _issueTrackerWorkflowService = new();
     private readonly DispatcherTimer _autoLensTimer;
     private SelectorInspectionResult? _currentInspection;
     private LensWindow? _lensWindow;
-    private LensFrameState? _lastLensState;
+    private readonly LensInspectionCoordinator _lensCoordinator = new();
     private Window? _activeResultWindow;
     private ImageResourcesWindow? _imageResourcesWindow;
     private string? _activeResultKind;
@@ -43,9 +45,6 @@ public partial class MainWindow : Window
     private bool _isCompactMode;
     private bool _isApplyingSettings;
     private bool _isSourceInitialized;
-    private bool _isLensFrozen;
-    private string _lastLensDetectedType = "-";
-    private string? _lastLiveLensHistoryKey;
     private AppSettings _settings = AppSettings.Default;
     private IReadOnlyList<UsageProfileDefinition> _usageProfiles = Array.Empty<UsageProfileDefinition>();
 
@@ -414,10 +413,9 @@ public partial class MainWindow : Window
 
     private void LensWindow_LensChanged(object? sender, LensFrameChangedEventArgs e)
     {
-        _lastLensState = e.State;
+        _lensCoordinator.UpdateState(e.State);
         _lastLensPreviewImage = null;
-        LensStateTextBlock.Text =
-            $"Center {e.State.CenterPoint.X:0},{e.State.CenterPoint.Y:0} | Frame {e.State.Bounds.Width:0}x{e.State.Bounds.Height:0} | {_lastLensDetectedType}";
+        LensStateTextBlock.Text = _lensCoordinator.FormatStateText();
         UpdateHealthPanel();
         ScheduleAutoLensInspection();
     }
@@ -426,13 +424,13 @@ public partial class MainWindow : Window
 
     private async void LensWindow_CaptureRequested(object? sender, LensFrameState state)
     {
-        _lastLensState = state;
+        _lensCoordinator.UpdateState(state);
         await CaptureLensAsync();
     }
 
     private void LensWindow_FreezeChanged(object? sender, bool isFrozen)
     {
-        _isLensFrozen = isFrozen;
+        _lensCoordinator.SetFrozen(isFrozen);
         if (isFrozen)
         {
             _autoLensTimer.Stop();
@@ -465,9 +463,7 @@ public partial class MainWindow : Window
         }
 
         _lensWindow = null;
-        _isLensFrozen = false;
-        _lastLensDetectedType = "-";
-        _lastLiveLensHistoryKey = null;
+        _lensCoordinator.Reset();
         LensButtonTextBlock.Text = "Lens";
         LensStateTextBlock.Text = "Inactive";
         _autoLensTimer.Stop();
@@ -482,7 +478,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (respectFreeze && _isLensFrozen)
+        if (respectFreeze && _lensCoordinator.IsFrozen)
         {
             SetStatus("Lens is frozen. Unfreeze to refresh live inspection.");
             return;
@@ -504,13 +500,13 @@ public partial class MainWindow : Window
                 CancellationToken.None);
 
             ShowInspection(target, result);
-            _lastLensDetectedType = DetectLensContentType(result);
-            _lensWindow?.SetDetectedType(_lastLensDetectedType);
+            _lensCoordinator.SetDetectedType(DetectLensContentType(result));
+            _lensWindow?.SetDetectedType(_lensCoordinator.DetectedType);
             UpdateLensStateText(state);
             var historyKey = $"{result.TagName}|{result.Selector}";
-            if (!string.Equals(_lastLiveLensHistoryKey, historyKey, StringComparison.Ordinal))
+            if (!string.Equals(_lensCoordinator.HistoryKey, historyKey, StringComparison.Ordinal))
             {
-                _lastLiveLensHistoryKey = historyKey;
+                _lensCoordinator.HistoryKey = historyKey;
                 AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  live lens");
             }
 
@@ -601,7 +597,7 @@ public partial class MainWindow : Window
 
     private async Task CaptureLensAsync()
     {
-        if (_lensWindow is null || _lastLensState is null)
+        if (_lensWindow is null || _lensCoordinator.LastState is null)
         {
             SetStatus("Open the lens before creating a capture.");
             return;
@@ -618,26 +614,22 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, "Creating evidence package...");
-            var state = _lastLensState;
+            var state = _lensCoordinator.LastState;
             var inspection = await InspectScreenPointAsync(
                 target,
                 state,
                 CancellationToken.None);
 
             ShowInspection(target, inspection);
-            _lastLensDetectedType = DetectLensContentType(inspection);
-            _lensWindow?.SetDetectedType(_lastLensDetectedType);
+            _lensCoordinator.SetDetectedType(DetectLensContentType(inspection));
+            _lensWindow?.SetDetectedType(_lensCoordinator.DetectedType);
             UpdateLensStateText(state);
 
             var captureRoot = GetCaptureRootDirectory();
-            Directory.CreateDirectory(captureRoot);
 
             var folderName = BuildCaptureFolderName(target, inspection);
-            var captureDirectory = UniqueDirectory(Path.Combine(captureRoot, folderName));
-            Directory.CreateDirectory(captureDirectory);
 
-            var screenshotPath = Path.Combine(captureDirectory, "screenshot.png");
-            var screenshotBytes = await CaptureRegionAsync(state, screenshotPath);
+            var screenshotBytes = await CaptureRegionBytesAsync(state, hideLens: true);
             _lastLensPreviewImage = CreateLensPreviewImage(state, screenshotBytes);
             var evidenceImages = BuildImagesWithLensPreview(inspection.Images);
             var commonIssues = CommonIssueDetector.Detect(inspection);
@@ -652,22 +644,6 @@ public partial class MainWindow : Window
                 inspection.Attributes.Select(item => $"{item.Key}=\"{item.Value}\"")));
             var sanitizedImagesJson = RedactExportText(JsonSerializer.Serialize(evidenceImages, jsonOptions));
             var sanitizedCommonIssues = RedactExportText(CommonIssueDetector.BuildReport(commonIssues));
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "inspection.json"),
-                sanitizedInspectionJson);
-            File.WriteAllText(Path.Combine(captureDirectory, "dom.html"), sanitizedOuterHtml);
-            File.WriteAllText(Path.Combine(captureDirectory, "computed.css"), sanitizedComputedCss);
-            File.WriteAllText(Path.Combine(captureDirectory, "console.txt"), sanitizedConsole);
-            File.WriteAllText(Path.Combine(captureDirectory, "attributes.txt"), sanitizedAttributes);
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "image-resources.json"),
-                sanitizedImagesJson);
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "common-issues.json"),
-                RedactExportText(JsonSerializer.Serialize(commonIssues, jsonOptions)));
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "common-issues.md"),
-                sanitizedCommonIssues);
 
             var evidence = BuildEvidencePackage(
                 target,
@@ -681,13 +657,6 @@ public partial class MainWindow : Window
                 "console.txt",
                 "attributes.txt",
                 "image-resources.json");
-            SaveCaptureNotes(captureDirectory, notes);
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "evidence.json"),
-                RedactExportText(JsonSerializer.Serialize(evidence, jsonOptions)));
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "evidence-summary.md"),
-                RedactExportText(BuildEvidenceMarkdown(evidence)));
 
             var manifest = new CaptureManifest(
                 DateTimeOffset.Now,
@@ -702,9 +671,22 @@ public partial class MainWindow : Window
                 "screenshot.png",
                 "inspection.json");
 
-            File.WriteAllText(
-                Path.Combine(captureDirectory, "manifest.json"),
-                RedactExportText(JsonSerializer.Serialize(manifest, jsonOptions)));
+            var captureDirectory = _captureWorkflowService.SaveEvidencePackage(new CaptureWorkflowRequest(
+                captureRoot,
+                folderName,
+                screenshotBytes,
+                sanitizedInspectionJson,
+                sanitizedOuterHtml,
+                sanitizedComputedCss,
+                sanitizedConsole,
+                sanitizedAttributes,
+                sanitizedImagesJson,
+                RedactExportText(JsonSerializer.Serialize(commonIssues, jsonOptions)),
+                sanitizedCommonIssues,
+                RedactExportText(JsonSerializer.Serialize(evidence, jsonOptions)),
+                RedactExportText(BuildEvidenceMarkdown(evidence)),
+                RedactExportText(JsonSerializer.Serialize(manifest, jsonOptions)),
+                RedactCaptureNotes(notes)));
 
             LoadCaptures();
             SelectCapture(captureDirectory);
@@ -925,13 +907,6 @@ public partial class MainWindow : Window
         CaptureNotesStore.Save(captureDirectory, sanitizedNotes);
     }
 
-    private async Task<byte[]> CaptureRegionAsync(LensFrameState state, string screenshotPath)
-    {
-        var bytes = await CaptureRegionBytesAsync(state, hideLens: true);
-        await File.WriteAllBytesAsync(screenshotPath, bytes);
-        return bytes;
-    }
-
     private async Task<byte[]> CaptureRegionBytesAsync(LensFrameState state, bool hideLens)
     {
         var wasVisible = _lensWindow?.IsVisible == true;
@@ -966,7 +941,7 @@ public partial class MainWindow : Window
 
     private void ScheduleAutoLensInspection()
     {
-        if (_lensWindow is null || _lastLensState is null || _isLensFrozen)
+        if (_lensWindow is null || !_lensCoordinator.CanScheduleAutoInspection())
         {
             return;
         }
@@ -979,9 +954,9 @@ public partial class MainWindow : Window
     private async void AutoLensTimer_Tick(object? sender, EventArgs e)
     {
         _autoLensTimer.Stop();
-        if (_lastLensState is not null)
+        if (_lensCoordinator.LastState is not null)
         {
-            await InspectLensCenterAsync(_lastLensState);
+            await InspectLensCenterAsync(_lensCoordinator.LastState);
         }
     }
 
@@ -1042,9 +1017,9 @@ public partial class MainWindow : Window
 
     private async Task ShowImagesWindowAsync()
     {
-        if (_lastLensState is not null)
+        if (_lensCoordinator.LastState is not null)
         {
-            _lastLensPreviewImage = await CreateLensPreviewImageAsync(_lastLensState);
+            _lastLensPreviewImage = await CreateLensPreviewImageAsync(_lensCoordinator.LastState);
         }
 
         var images = BuildImagesWithLensPreview(_currentInspection?.Images ?? Array.Empty<WebImageResource>());
@@ -1168,7 +1143,7 @@ public partial class MainWindow : Window
     private void UpdateLensStateText(LensFrameState state)
     {
         LensStateTextBlock.Text =
-            $"Center {state.CenterPoint.X:0},{state.CenterPoint.Y:0} | Frame {state.Bounds.Width:0}x{state.Bounds.Height:0} | {_lastLensDetectedType}";
+            _lensCoordinator.FormatStateText();
     }
 
     private static string GetAttributeValue(IReadOnlyDictionary<string, string> attributes, string key)
@@ -1956,17 +1931,9 @@ public partial class MainWindow : Window
         var selectedDirectory = GetSelectedCapture() is CaptureFileRecord selected
             ? selected.DirectoryPath
             : null;
-        _captureFiles.Clear();
-        var root = GetCaptureRootDirectory();
-        Directory.CreateDirectory(root);
-
-        foreach (var directory in Directory.EnumerateDirectories(root).OrderByDescending(Directory.GetCreationTimeUtc))
-        {
-            _captureFiles.Add(CaptureFileRecord.FromDirectory(directory));
-        }
-
+        _captureHistory.Load(GetCaptureRootDirectory(), selectedDirectory);
         RefreshDynamicCaptureFilters();
-        ApplyCaptureFilters(selectedDirectory);
+        BindCaptureHistory();
     }
 
     private void ApplyCaptureFilters(string? preferredSelection = null)
@@ -1982,39 +1949,27 @@ public partial class MainWindow : Window
             return;
         }
 
-        var query = CaptureSearchTextBox?.Text?.Trim() ?? string.Empty;
-        var browser = GetFilterValue(CaptureBrowserFilterComboBox);
-        var status = GetFilterValue(CaptureStatusFilterComboBox);
-        var severity = GetFilterValue(CaptureSeverityFilterComboBox);
-        var dateRange = GetFilterValue(CaptureDateFilterComboBox);
+        _captureHistory.ApplyFilters(
+            new CaptureHistoryFilter(
+                CaptureSearchTextBox?.Text?.Trim() ?? string.Empty,
+                GetFilterValue(CaptureBrowserFilterComboBox),
+                GetFilterValue(CaptureStatusFilterComboBox),
+                GetFilterValue(CaptureSeverityFilterComboBox),
+                GetFilterValue(CaptureDateFilterComboBox)),
+            preferredSelection);
+        BindCaptureHistory();
+    }
 
-        var filtered = _captureFiles
-            .Where(capture => MatchesQuery(capture, query))
-            .Where(capture => string.IsNullOrWhiteSpace(browser) || capture.Browser.Equals(browser, StringComparison.OrdinalIgnoreCase))
-            .Where(capture => string.IsNullOrWhiteSpace(status) || capture.NoteStatus.Equals(status, StringComparison.OrdinalIgnoreCase))
-            .Where(capture => string.IsNullOrWhiteSpace(severity) || capture.NoteSeverity.Equals(severity, StringComparison.OrdinalIgnoreCase))
-            .Where(capture => MatchesDateRange(capture, dateRange))
-            .OrderByDescending(capture => capture.CreatedAt)
-            .ToArray();
-
-        _filteredCaptureFiles.Clear();
-        _filteredCaptureFiles.AddRange(filtered);
+    private void BindCaptureHistory()
+    {
         CaptureFilesListBox.ItemsSource = null;
-        CaptureFilesListBox.ItemsSource = _filteredCaptureFiles;
+        CaptureFilesListBox.ItemsSource = _captureHistory.FilteredCaptures;
         CaptureFilesDataGrid.ItemsSource = null;
-        CaptureFilesDataGrid.ItemsSource = _filteredCaptureFiles;
+        CaptureFilesDataGrid.ItemsSource = _captureHistory.FilteredCaptures;
 
-        if (!string.IsNullOrWhiteSpace(preferredSelection))
+        if (_captureHistory.SelectedCapture is not null)
         {
-            SelectCapture(preferredSelection);
-            if (GetSelectedCapture() is null && _filteredCaptureFiles.Count > 0)
-            {
-                SelectCapture(_filteredCaptureFiles[0]);
-            }
-        }
-        else if (_filteredCaptureFiles.Count > 0 && GetSelectedCapture() is null)
-        {
-            SelectCapture(_filteredCaptureFiles[0]);
+            SelectCapture(_captureHistory.SelectedCapture);
         }
 
         SetCaptureFilterStatus();
@@ -2023,13 +1978,14 @@ public partial class MainWindow : Window
 
     private void SelectCapture(string directory)
     {
-        SelectCapture(_filteredCaptureFiles.FirstOrDefault(item =>
-            string.Equals(item.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase)));
+        _captureHistory.Select(directory);
+        SelectCapture(_captureHistory.SelectedCapture);
         UpdateCaptureNotesPreview();
     }
 
     private void SelectCapture(CaptureFileRecord? capture)
     {
+        _captureHistory.Select(capture);
         CaptureFilesListBox.SelectedItem = capture;
         CaptureFilesDataGrid.SelectedItem = capture;
         if (capture is not null)
@@ -2042,10 +1998,12 @@ public partial class MainWindow : Window
     {
         if (capture is null)
         {
+            _captureHistory.Select((CaptureFileRecord?)null);
             UpdateCaptureNotesPreview();
             return;
         }
 
+        _captureHistory.Select(capture);
         if (!ReferenceEquals(CaptureFilesListBox.SelectedItem, capture))
         {
             CaptureFilesListBox.SelectedItem = capture;
@@ -2081,13 +2039,7 @@ public partial class MainWindow : Window
     private void RefreshDynamicCaptureFilters()
     {
         var selectedBrowser = CaptureBrowserFilterComboBox.SelectedItem as string;
-        var browsers = new[] { "All browsers" }
-            .Concat(_captureFiles
-                .Select(capture => capture.Browser)
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(value => value))
-            .ToArray();
+        var browsers = _captureHistory.GetBrowserFilterValues().ToArray();
 
         CaptureBrowserFilterComboBox.ItemsSource = browsers;
         CaptureBrowserFilterComboBox.SelectedItem = browsers.Contains(selectedBrowser, StringComparer.OrdinalIgnoreCase)
@@ -2107,15 +2059,7 @@ public partial class MainWindow : Window
 
     private void SetCaptureFilterStatus()
     {
-        var total = _captureFiles.Count;
-        var visible = _filteredCaptureFiles.Count;
-        if (total == visible)
-        {
-            SetStatus($"{total} capture(s) loaded.");
-            return;
-        }
-
-        SetStatus($"{visible} of {total} capture(s) match the current filters.");
+        SetStatus(_captureHistory.BuildFilterStatus());
     }
 
     private static string GetFilterValue(System.Windows.Controls.ComboBox comboBox)
@@ -2125,35 +2069,6 @@ public partial class MainWindow : Window
             || value.Equals("Any date", StringComparison.OrdinalIgnoreCase)
             ? string.Empty
             : value;
-    }
-
-    private static bool MatchesQuery(CaptureFileRecord capture, string query)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return true;
-        }
-
-        return query
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .All(term => capture.SearchText.Contains(term, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool MatchesDateRange(CaptureFileRecord capture, string dateRange)
-    {
-        if (string.IsNullOrWhiteSpace(dateRange))
-        {
-            return true;
-        }
-
-        var now = DateTimeOffset.Now;
-        return dateRange switch
-        {
-            "Today" => capture.CreatedAt.LocalDateTime.Date == now.LocalDateTime.Date,
-            "Last 7 days" => capture.CreatedAt >= now.AddDays(-7),
-            "Last 30 days" => capture.CreatedAt >= now.AddDays(-30),
-            _ => true
-        };
     }
 
     private void UpdateCaptureNotesPreview()
@@ -2296,7 +2211,9 @@ public partial class MainWindow : Window
 
     private void CompareCaptures()
     {
-        var comparisonSource = _filteredCaptureFiles.Count > 0 ? _filteredCaptureFiles : _captureFiles;
+        var comparisonSource = _captureHistory.FilteredCaptures.Count > 0
+            ? _captureHistory.FilteredCaptures
+            : _captureHistory.Captures;
         if (comparisonSource.Count < 2)
         {
             SetStatus("Create at least two captures or clear filters before comparing.");
@@ -2330,18 +2247,10 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, "Building polished capture report...");
-            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName)
-                .Redacted(GetPrivacyOptions());
-            var reportDirectory = Path.Combine(capture.DirectoryPath, "report");
-            Directory.CreateDirectory(reportDirectory);
-
-            var markdownPath = Path.Combine(reportDirectory, "report.md");
-            var htmlPath = Path.Combine(reportDirectory, "report.html");
-            var pdfPath = Path.Combine(reportDirectory, "report.pdf");
-
-            File.WriteAllText(markdownPath, report.BuildMarkdown(), Encoding.UTF8);
-            File.WriteAllText(htmlPath, report.BuildHtml(), Encoding.UTF8);
-            SimplePdfReportWriter.Write(pdfPath, report);
+            var reportDirectory = _reportWorkflowService.ExportCaptureReport(
+                capture.DirectoryPath,
+                GetActiveUsageProfile().DisplayName,
+                GetPrivacyOptions());
 
             Process.Start(new ProcessStartInfo
             {
@@ -2371,28 +2280,20 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, "Building issue tracker drafts...");
-            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName)
-                .Redacted(GetPrivacyOptions());
-            var outputDirectory = Path.Combine(capture.DirectoryPath, "issue-trackers");
-            Directory.CreateDirectory(outputDirectory);
+            var result = _issueTrackerWorkflowService.BuildDrafts(
+                capture.DirectoryPath,
+                GetActiveUsageProfile().DisplayName,
+                GetPrivacyOptions(),
+                _settings.IssueTrackers);
 
-            var drafts = IssueTrackerDraftFactory.Create(report, outputDirectory);
-            foreach (var draft in drafts)
-            {
-                File.WriteAllText(
-                    draft.FilePath,
-                    $"{draft.Title}{Environment.NewLine}{Environment.NewLine}{draft.Body}",
-                    Encoding.UTF8);
-            }
-
-            var window = new IssueTrackerWindow(drafts, outputDirectory, _settings.IssueTrackers)
+            var window = new IssueTrackerWindow(result.Drafts, result.OutputDirectory, result.Settings)
             {
                 Owner = this,
                 Topmost = _settings.Ui.KeepResultWindowsTopmost
             };
             PlaceResultWindow(window);
             window.Show();
-            SetStatus($"Issue tracker drafts generated: {outputDirectory}");
+            SetStatus($"Issue tracker drafts generated: {result.OutputDirectory}");
         }
         catch (Exception exception)
         {
@@ -2438,64 +2339,9 @@ public partial class MainWindow : Window
 
     private string ExportSafePackage(PrivacyPreviewModel model)
     {
-        var safeDirectory = Path.Combine(
-            model.Original.CaptureDirectory,
-            $"privacy-safe-{DateTime.Now:yyyyMMdd-HHmmss}");
-        Directory.CreateDirectory(safeDirectory);
-
-        var safeReport = model.Redacted with { ScreenshotPath = string.Empty };
-        var markdownPath = Path.Combine(safeDirectory, "safe-report.md");
-        var htmlPath = Path.Combine(safeDirectory, "safe-report.html");
-        var pdfPath = Path.Combine(safeDirectory, "safe-report.pdf");
-        File.WriteAllText(markdownPath, safeReport.BuildMarkdown(), Encoding.UTF8);
-        File.WriteAllText(htmlPath, safeReport.BuildHtml(), Encoding.UTF8);
-        SimplePdfReportWriter.Write(pdfPath, safeReport);
-
-        File.WriteAllText(
-            Path.Combine(safeDirectory, "privacy-summary.md"),
-            BuildPrivacySummaryMarkdown(model),
-            Encoding.UTF8);
-        File.WriteAllText(Path.Combine(safeDirectory, "dom.safe.html"), safeReport.Dom, Encoding.UTF8);
-        File.WriteAllText(Path.Combine(safeDirectory, "computed.safe.css"), safeReport.ComputedCss, Encoding.UTF8);
-        File.WriteAllText(Path.Combine(safeDirectory, "console.safe.txt"), safeReport.Console, Encoding.UTF8);
-        File.WriteAllText(Path.Combine(safeDirectory, "attributes.safe.txt"), safeReport.Attributes, Encoding.UTF8);
-        File.WriteAllText(
-            Path.Combine(safeDirectory, "images.safe.json"),
-            JsonSerializer.Serialize(safeReport.Images, new JsonSerializerOptions { WriteIndented = true }),
-            Encoding.UTF8);
-
-        if (model.IncludeScreenshotInSafeExport && File.Exists(model.Original.ScreenshotPath))
-        {
-            File.Copy(model.Original.ScreenshotPath, Path.Combine(safeDirectory, "screenshot-unredacted.png"), overwrite: true);
-        }
-
+        var safeDirectory = _reportWorkflowService.ExportSafePackage(model);
         SetStatus($"Safe privacy package exported: {safeDirectory}");
         return safeDirectory;
-    }
-
-    private static string BuildPrivacySummaryMarkdown(PrivacyPreviewModel model)
-    {
-        return string.Join(
-            Environment.NewLine,
-            new[]
-            {
-                "# Julco Privacy Summary",
-                string.Empty,
-                model.SummaryText,
-                string.Empty,
-                "## Policy",
-                string.Empty,
-                model.IncludeScreenshotInSafeExport
-                    ? "Screenshot was included because Settings allows screenshots in safe exports. Review visual content before sharing."
-                    : "Screenshot was omitted because safe exports do not include visual captures by default.",
-                string.Empty,
-                "## Source",
-                string.Empty,
-                $"- Capture: {model.Original.CaptureDirectory}",
-                $"- Page: {model.Redacted.PageTitle}",
-                $"- URL: {model.Redacted.PageUrl}",
-                $"- Selector: {model.Redacted.Selector}"
-            });
     }
 
     private void SetBusy(bool isBusy, string? message = null)
@@ -2577,202 +2423,45 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<HealthStatusItem> BuildHealthStatusItems()
     {
-        return new[]
-        {
-            BuildBrowserHealth(),
-            BuildPortHealth(),
-            BuildTabsHealth(),
-            BuildInspectionHealth(),
-            BuildLensHealth(),
-            BuildCaptureFolderHealth(),
-            BuildCaptureHistoryHealth(),
-            BuildPrivacyHealth(),
-            BuildIssueTrackerHealth(),
-            BuildShortcutHealth(),
-            BuildProfileHealth()
-        };
-    }
-
-    private HealthStatusItem BuildBrowserHealth()
-    {
-        return _activeBrowser is null
-            ? Warn("Browser", "Not started", "Open Chrome, Edge, Firefox, or Opera from Julco before inspecting.")
-            : Ok("Browser", _activeBrowser.Value.ToString(), $"{_activeBrowser} remote session is the active target family.");
-    }
-
-    private HealthStatusItem BuildPortHealth()
-    {
-        return TryReadPort(out var port)
-            ? Ok("Remote port", port.ToString(), $"{PortLabelTextBlock.Text} endpoint configured on localhost:{port}.")
-            : Warn("Remote port", "Invalid", "Port must be a number between 1 and 65535.");
-    }
-
-    private HealthStatusItem BuildTabsHealth()
-    {
+        var isPortValid = TryReadPort(out var port);
         var tabCount = TargetsComboBox?.Items.Count ?? 0;
-        if (tabCount <= 0)
-        {
-            return Warn("Inspectable tabs", "None", "Open browser tabs and press Tabs to refresh target discovery.");
-        }
-
-        var selected = TargetsComboBox?.SelectedItem is CdpTarget target
-            ? $"{target.Title} - {target.Url}"
+        var selectedTarget = TargetsComboBox?.SelectedItem as CdpTarget;
+        var selectedTargetDescription = selectedTarget is not null
+            ? $"{selectedTarget.Title} - {selectedTarget.Url}"
             : "No tab selected.";
-        return Ok("Inspectable tabs", tabCount.ToString(), selected);
-    }
-
-    private HealthStatusItem BuildInspectionHealth()
-    {
-        return _currentInspection is null
-            ? Warn("Inspection", "Idle", "Inspect a selector or use Lens to populate DOM, CSS, console, attributes, images, and issues.")
-            : Ok("Inspection", _currentInspection.TagName, $"{_currentInspection.Selector} on {GetSelectedTargetUrl()}");
-    }
-
-    private string GetSelectedTargetUrl()
-    {
-        return TargetsComboBox?.SelectedItem is CdpTarget target
-            ? target.Url
-            : "-";
-    }
-
-    private HealthStatusItem BuildLensHealth()
-    {
-        if (_lensWindow is null || _lastLensState is null)
-        {
-            return Warn("Lens", "Inactive", "Open Lens before capturing a framed evidence package.");
-        }
-
-        return Ok(
-            "Lens",
-            _isLensFrozen ? "Frozen" : _lensWindow.IsLocked ? "Locked" : "Active",
-            $"Frame {_lastLensState.Bounds.Width:0}x{_lastLensState.Bounds.Height:0}, center {_lastLensState.CenterPoint.X:0},{_lastLensState.CenterPoint.Y:0}. Type: {_lastLensDetectedType}.");
-    }
-
-    private HealthStatusItem BuildCaptureFolderHealth()
-    {
-        try
-        {
-            var root = GetCaptureRootDirectory();
-            Directory.CreateDirectory(root);
-            return Ok("Capture folder", "Ready", root);
-        }
-        catch (Exception exception)
-        {
-            return Warn("Capture folder", "Blocked", exception.Message);
-        }
-    }
-
-    private HealthStatusItem BuildCaptureHistoryHealth()
-    {
-        var selected = GetSelectedCapture();
-        var detail = selected is null
-            ? $"{_captureFiles.Count} capture(s) loaded. No capture selected."
-            : $"{_filteredCaptureFiles.Count}/{_captureFiles.Count} visible. Selected: {selected.HistoryTitle}";
-        return _captureFiles.Count == 0
-            ? Warn("Capture history", "Empty", "Create a lens capture to start the evidence history.")
-            : Ok("Capture history", _captureFiles.Count.ToString(), detail);
-    }
-
-    private HealthStatusItem BuildPrivacyHealth()
-    {
-        var privacy = _settings.Privacy;
-        if (!privacy.RedactOnExport)
-        {
-            return Warn("Privacy", "Off", "Redaction is disabled for exports and issue handoff drafts.");
-        }
-
-        var screenshotPolicy = privacy.IncludeScreenshotsInSafeExports
-            ? "Safe exports may include unredacted screenshots."
-            : "Safe exports omit screenshots by default.";
-        return Ok("Privacy", "Protected", $"Redaction is enabled. {screenshotPolicy}");
-    }
-
-    private HealthStatusItem BuildIssueTrackerHealth()
-    {
-        var issueTrackers = (_settings.IssueTrackers ?? IssueTrackerSettings.Default).Normalized();
-        var ready = new List<string>();
-        var enabledButMissing = new List<string>();
-        if (issueTrackers.EnableGitHub)
-        {
-            if (issueTrackers.IsGitHubConfigured)
-            {
-                ready.Add($"GitHub {issueTrackers.GitHubOwner}/{issueTrackers.GitHubRepository}");
-            }
-            else
-            {
-                enabledButMissing.Add("GitHub");
-            }
-        }
-
-        if (issueTrackers.EnableJira)
-        {
-            if (issueTrackers.IsJiraConfigured)
-            {
-                ready.Add($"Jira {issueTrackers.JiraProjectKey}");
-            }
-            else
-            {
-                enabledButMissing.Add("Jira");
-            }
-        }
-
-        if (enabledButMissing.Count > 0)
-        {
-            return Warn(
-                "Issue trackers",
-                "Needs setup",
-                $"{string.Join(", ", enabledButMissing)} enabled but missing required settings or token.");
-        }
-
-        return ready.Count == 0
-            ? Ok("Issue trackers", "Local drafts", "GitHub/Jira submission is optional and currently disabled.")
-            : Ok("Issue trackers", "Connected", string.Join("; ", ready));
-    }
-
-    private HealthStatusItem BuildShortcutHealth()
-    {
-        var global = CountEnabledShortcuts(_settings.Keyboard.GlobalShortcuts);
-        var local = CountEnabledShortcuts(_settings.Keyboard.LocalShortcuts);
-        if (!_settings.Keyboard.EnableGlobalShortcuts && !_settings.Keyboard.EnableLocalShortcuts)
-        {
-            return Warn("Shortcuts", "Off", "Global and local shortcuts are disabled in Settings.");
-        }
-
-        return Ok(
-            "Shortcuts",
-            $"{global}/{local}",
-            $"Global enabled: {_settings.Keyboard.EnableGlobalShortcuts}. Local enabled: {_settings.Keyboard.EnableLocalShortcuts}.");
-    }
-
-    private HealthStatusItem BuildProfileHealth()
-    {
-        if (_usageProfiles.Count == 0)
-        {
-            return Warn("Profile", "Loading", "Usage profiles are still being initialized.");
-        }
-
-        var profile = GetActiveUsageProfile();
-        return Ok("Profile", profile.DisplayName, profile.Guidance);
-    }
-
-    private static int CountEnabledShortcuts(IReadOnlyDictionary<string, string> shortcuts)
-    {
-        return shortcuts.Values.Count(value => HotkeyTextParser.Parse(value).IsEnabled);
+        var lensState = _lensWindow is null || _lensCoordinator.LastState is null
+            ? "Inactive"
+            : _lensCoordinator.IsFrozen ? "Frozen" : _lensWindow.IsLocked ? "Locked" : "Active";
+        var profile = _usageProfiles.Count == 0 ? null : GetActiveUsageProfile();
+        return _healthStatusService.Build(new HealthStatusContext(
+            _settings,
+            _activeBrowser?.ToString(),
+            isPortValid,
+            isPortValid ? port.ToString() : PortTextBox.Text,
+            PortLabelTextBlock.Text,
+            tabCount,
+            selectedTargetDescription,
+            selectedTarget?.Url ?? "-",
+            _currentInspection?.TagName,
+            _currentInspection?.Selector ?? string.Empty,
+            _lensWindow is not null && _lensCoordinator.LastState is not null,
+            lensState,
+            _lensCoordinator.LastState?.Bounds.Width ?? 0,
+            _lensCoordinator.LastState?.Bounds.Height ?? 0,
+            _lensCoordinator.LastState?.CenterPoint.X ?? 0,
+            _lensCoordinator.LastState?.CenterPoint.Y ?? 0,
+            _lensCoordinator.DetectedType,
+            GetCaptureRootDirectory(),
+            _captureHistory.Captures.Count,
+            _captureHistory.FilteredCaptures.Count,
+            GetSelectedCapture()?.HistoryTitle,
+            profile?.DisplayName ?? string.Empty,
+            profile?.Guidance ?? string.Empty));
     }
 
     private bool TryReadPort(out int port)
     {
         return int.TryParse(PortTextBox.Text, out port) && port is > 0 and <= 65535;
-    }
-
-    private static HealthStatusItem Ok(string name, string state, string detail)
-    {
-        return new HealthStatusItem(name, state, detail, "OK");
-    }
-
-    private static HealthStatusItem Warn(string name, string state, string detail)
-    {
-        return new HealthStatusItem(name, state, detail, "Warning");
     }
 
     private void OpenHelp()
@@ -2814,23 +2503,6 @@ public partial class MainWindow : Window
         return SanitizeFileName(value);
     }
 
-    private static string UniqueDirectory(string path)
-    {
-        if (!Directory.Exists(path))
-        {
-            return path;
-        }
-
-        for (var index = 2; ; index++)
-        {
-            var candidate = $"{path}-{index}";
-            if (!Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-    }
-
     private static string SanitizeFileName(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -2867,252 +2539,4 @@ public partial class MainWindow : Window
         IReadOnlyList<string> TabPriority,
         IReadOnlyList<string> PrimaryActions);
 
-    private sealed record CaptureFileRecord(
-        string DirectoryPath,
-        string DisplayName,
-        DateTimeOffset CreatedAt,
-        string Browser,
-        string Url,
-        string PageTitle,
-        string TagName,
-        string Selector,
-        string NoteStatus,
-        string NoteSeverity,
-        string NoteTags,
-        string NoteText,
-        string ScreenshotPath,
-        string SearchText)
-    {
-        public string ThumbnailPath => ResolveThumbnailPath(ScreenshotPath);
-
-        public string ThumbnailFallback => File.Exists(ScreenshotPath) ? string.Empty : "No image";
-
-        public string CreatedLocalText => CreatedAt.LocalDateTime.ToString("MM-dd HH:mm");
-
-        public string HistoryTitle => string.IsNullOrWhiteSpace(PageTitle)
-            ? Path.GetFileName(DirectoryPath)
-            : PageTitle;
-
-        public string HistorySubtitle => string.IsNullOrWhiteSpace(Selector)
-            ? $"{TagName}  {Url}"
-            : $"{TagName}  {Selector}";
-
-        public string HistoryMeta
-        {
-            get
-            {
-                var note = string.IsNullOrWhiteSpace(NoteText)
-                    ? string.Empty
-                    : $"  notes:{NoteSeverity}/{NoteStatus}";
-                return $"{CreatedLocalText}  {Browser}  {ShortenForHistory(Url, 90)}{note}";
-            }
-        }
-
-        public static CaptureFileRecord FromDirectory(string directoryPath)
-        {
-            var evidencePath = Path.Combine(directoryPath, "evidence.json");
-            if (File.Exists(evidencePath))
-            {
-                try
-                {
-                    var evidence = JsonSerializer.Deserialize<EvidencePackage>(File.ReadAllText(evidencePath));
-                    if (evidence is not null)
-                    {
-                        var notes = evidence.StructuredNotes ?? LoadCaptureNotes(directoryPath);
-                        var noteMarker = notes.HasContent
-                            ? $"  notes:{notes.Severity}/{notes.Status}"
-                            : string.Empty;
-                        var displayName = $"{evidence.CreatedAt:MM-dd HH:mm}  evidence  {evidence.Element.TagName}  {evidence.Element.Selector}{noteMarker}";
-                        return new CaptureFileRecord(
-                            directoryPath,
-                            displayName,
-                            evidence.CreatedAt,
-                            evidence.Browser.Name,
-                            evidence.Page.Url,
-                            evidence.Page.Title,
-                            evidence.Element.TagName,
-                            evidence.Element.Selector,
-                            notes.Status,
-                            notes.Severity,
-                            notes.Tags,
-                            notes.Observation,
-                            ResolveCaptureFile(directoryPath, evidence.Files.Screenshot),
-                            BuildCaptureSearchText(
-                                directoryPath,
-                                displayName,
-                                evidence.Browser.Name,
-                                evidence.Page.Url,
-                                evidence.Page.Title,
-                                evidence.Element.TagName,
-                                evidence.Element.Selector,
-                                notes));
-                    }
-                }
-                catch (JsonException)
-                {
-                }
-            }
-
-            var manifestPath = Path.Combine(directoryPath, "manifest.json");
-            if (File.Exists(manifestPath))
-            {
-                try
-                {
-                    var manifest = JsonSerializer.Deserialize<CaptureManifest>(File.ReadAllText(manifestPath));
-                    if (manifest is not null)
-                    {
-                        var notes = LoadCaptureNotes(directoryPath);
-                        var noteMarker = notes.HasContent
-                            ? $"  notes:{notes.Severity}/{notes.Status}"
-                            : string.Empty;
-                        var displayName = $"{manifest.CreatedAt:MM-dd HH:mm}  {manifest.TagName}  {manifest.Selector}{noteMarker}";
-                        return new CaptureFileRecord(
-                            directoryPath,
-                            displayName,
-                            manifest.CreatedAt,
-                            "Unknown",
-                            manifest.Url,
-                            manifest.PageTitle,
-                            manifest.TagName,
-                            manifest.Selector,
-                            notes.Status,
-                            notes.Severity,
-                            notes.Tags,
-                            notes.Observation,
-                            ResolveCaptureFile(directoryPath, manifest.Screenshot),
-                            BuildCaptureSearchText(
-                                directoryPath,
-                                displayName,
-                                "Unknown",
-                                manifest.Url,
-                                manifest.PageTitle,
-                                manifest.TagName,
-                                manifest.Selector,
-                                notes));
-                    }
-                }
-                catch (JsonException)
-                {
-                }
-            }
-
-            var fallbackNotes = LoadCaptureNotes(directoryPath);
-            var fallbackName = Path.GetFileName(directoryPath);
-            return new CaptureFileRecord(
-                directoryPath,
-                fallbackName,
-                Directory.GetCreationTime(directoryPath),
-                "Unknown",
-                string.Empty,
-                string.Empty,
-                string.Empty,
-                string.Empty,
-                fallbackNotes.Status,
-                fallbackNotes.Severity,
-                fallbackNotes.Tags,
-                fallbackNotes.Observation,
-                ResolveCaptureFile(directoryPath, "screenshot.png"),
-                BuildCaptureSearchText(
-                    directoryPath,
-                    fallbackName,
-                    "Unknown",
-                    string.Empty,
-                    string.Empty,
-                    string.Empty,
-                    string.Empty,
-                    fallbackNotes));
-        }
-
-        private static string BuildCaptureSearchText(
-            string directoryPath,
-            string displayName,
-            string browser,
-            string url,
-            string pageTitle,
-            string tagName,
-            string selector,
-            CaptureNotes notes)
-        {
-            return string.Join(
-                " ",
-                displayName,
-                browser,
-                url,
-                pageTitle,
-                tagName,
-                selector,
-                notes.Category,
-                notes.Severity,
-                notes.Status,
-                notes.Tags,
-                notes.Observation,
-                Path.GetFileName(directoryPath));
-        }
-
-        private static string ResolveCaptureFile(string directoryPath, string? relativePath)
-        {
-            if (string.IsNullOrWhiteSpace(relativePath))
-            {
-                return string.Empty;
-            }
-
-            var path = Path.IsPathRooted(relativePath)
-                ? relativePath
-                : Path.Combine(directoryPath, relativePath);
-            return File.Exists(path) ? path : string.Empty;
-        }
-
-        private static string ResolveThumbnailPath(string screenshotPath)
-        {
-            if (string.IsNullOrWhiteSpace(screenshotPath) || !File.Exists(screenshotPath))
-            {
-                return string.Empty;
-            }
-
-            var thumbnailPath = Path.Combine(
-                Path.GetDirectoryName(screenshotPath) ?? string.Empty,
-                ".julco-thumbnail.png");
-            try
-            {
-                if (File.Exists(thumbnailPath)
-                    && File.GetLastWriteTimeUtc(thumbnailPath) >= File.GetLastWriteTimeUtc(screenshotPath))
-                {
-                    return thumbnailPath;
-                }
-
-                using var source = System.Drawing.Image.FromFile(screenshotPath);
-                const int maxWidth = 180;
-                const int maxHeight = 120;
-                var scale = Math.Min(maxWidth / (double)source.Width, maxHeight / (double)source.Height);
-                var width = Math.Max(1, (int)Math.Round(source.Width * scale));
-                var height = Math.Max(1, (int)Math.Round(source.Height * scale));
-                using var thumbnail = new System.Drawing.Bitmap(maxWidth, maxHeight);
-                using var graphics = System.Drawing.Graphics.FromImage(thumbnail);
-                graphics.Clear(System.Drawing.Color.FromArgb(10, 14, 20));
-                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                var x = (maxWidth - width) / 2;
-                var y = (maxHeight - height) / 2;
-                graphics.DrawImage(source, x, y, width, height);
-                thumbnail.Save(thumbnailPath, System.Drawing.Imaging.ImageFormat.Png);
-                return thumbnailPath;
-            }
-            catch
-            {
-                return screenshotPath;
-            }
-        }
-
-        private static string ShortenForHistory(string? value, int maxLength)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return "-";
-            }
-
-            return value.Length <= maxLength
-                ? value
-                : value[..Math.Max(0, maxLength - 1)] + "...";
-        }
-    }
 }
