@@ -53,4 +53,29 @@ public sealed class PrivacyRedactorTests
         Assert.Contains("[REDACTED_TEXT]", result);
         Assert.DoesNotContain("ana@example.com", result);
     }
+
+    [Fact]
+    public void AnalyzeTextCountsConfiguredSensitivePatterns()
+    {
+        var input = "ana@example.com token=secret-token-123 Cookie: sessionid123 https://example.com/users/123456?token=abc";
+
+        var summary = PrivacyRedactor.AnalyzeText(input, Options);
+
+        Assert.True(summary.HasChanges);
+        Assert.Equal(1, summary.EmailMatches);
+        Assert.True(summary.TokenMatches >= 1);
+        Assert.True(summary.CookieMatches >= 1);
+        Assert.Equal(1, summary.PrivateUrlMatches);
+    }
+
+    [Fact]
+    public void AnalyzeHtmlCountsVisibleTextNodesWhenEnabled()
+    {
+        var input = "<section><button>Private visible label</button><span>ana@example.com</span></section>";
+
+        var summary = PrivacyRedactor.AnalyzeHtml(input, Options);
+
+        Assert.True(summary.HtmlTextNodeMatches >= 2);
+        Assert.Equal(1, summary.EmailMatches);
+    }
 }

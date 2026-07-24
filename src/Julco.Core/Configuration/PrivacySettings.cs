@@ -6,7 +6,8 @@ public sealed record PrivacySettings(
     bool RedactTokens,
     bool RedactCookies,
     bool RedactPrivateUrls,
-    bool RedactSelectedText)
+    bool RedactSelectedText,
+    bool IncludeScreenshotsInSafeExports)
 {
     public static PrivacySettings Default { get; } = new(
         RedactOnExport: true,
@@ -14,5 +15,6 @@ public sealed record PrivacySettings(
         RedactTokens: true,
         RedactCookies: true,
         RedactPrivateUrls: true,
-        RedactSelectedText: true);
+        RedactSelectedText: true,
+        IncludeScreenshotsInSafeExports: false);
 }

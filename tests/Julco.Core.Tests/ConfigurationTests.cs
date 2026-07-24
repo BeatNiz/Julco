@@ -15,6 +15,7 @@ public sealed class ConfigurationTests
         Assert.Equal(ThemeMode.Dark, settings.Theme);
         Assert.Equal(UsageProfile.QA, settings.Ui.Profile);
         Assert.True(settings.Privacy.RedactOnExport);
+        Assert.False(settings.Privacy.IncludeScreenshotsInSafeExports);
         Assert.Equal("Win+Shift+D", settings.Capture.GlobalShortcut);
         Assert.True(settings.Keyboard.EnableGlobalShortcuts);
         Assert.True(settings.Keyboard.EnableLocalShortcuts);
@@ -72,7 +73,8 @@ public sealed class ConfigurationTests
                 "RedactTokens": true,
                 "RedactCookies": true,
                 "RedactPrivateUrls": true,
-                "RedactSelectedText": false
+                "RedactSelectedText": false,
+                "IncludeScreenshotsInSafeExports": false
               },
               "Ui": {
                 "CdpPort": 9222,

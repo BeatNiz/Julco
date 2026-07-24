@@ -65,6 +65,21 @@ public static class PrivacyRedactor
         return result;
     }
 
+    public static PrivacyRedactionSummary AnalyzeText(string? value, PrivacyRedactorOptions options)
+    {
+        if (!options.Enabled || string.IsNullOrEmpty(value))
+        {
+            return PrivacyRedactionSummary.Empty;
+        }
+
+        return new PrivacyRedactionSummary(
+            options.RedactEmails ? EmailRegex.Matches(value).Count : 0,
+            options.RedactTokens ? TokenKeyValueRegex.Matches(value).Count + BearerRegex.Matches(value).Count : 0,
+            options.RedactCookies ? CookieHeaderRegex.Matches(value).Count + CookieAttributeRegex.Matches(value).Count : 0,
+            options.RedactPrivateUrls ? UrlRegex.Matches(value).Count : 0,
+            0);
+    }
+
     public static string RedactHtml(string? html, PrivacyRedactorOptions options)
     {
         var result = RedactText(html, options);
@@ -80,6 +95,23 @@ public static class PrivacyRedactor
                 ? match.Value
                 : ">[REDACTED_TEXT]<";
         });
+    }
+
+    public static PrivacyRedactionSummary AnalyzeHtml(string? html, PrivacyRedactorOptions options)
+    {
+        var textSummary = AnalyzeText(html, options);
+        if (!options.Enabled || !options.RedactSelectedText || string.IsNullOrWhiteSpace(html))
+        {
+            return textSummary;
+        }
+
+        var textNodeMatches = HtmlTextNodeRegex
+            .Matches(html)
+            .Count(match => !string.IsNullOrWhiteSpace(match.Groups["text"].Value));
+        return textSummary with
+        {
+            HtmlTextNodeMatches = textNodeMatches
+        };
     }
 
     private static string RedactUrl(Match match)

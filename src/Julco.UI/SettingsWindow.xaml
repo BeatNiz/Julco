@@ -193,6 +193,10 @@
                 <CheckBox x:Name="RedactSelectedTextCheckBox"
                           Content="Visible text inside exported DOM/HTML"
                           Margin="0,8,0,0" />
+                <CheckBox x:Name="IncludeScreenshotsInSafeExportsCheckBox"
+                          Content="Include screenshots in safe exports"
+                          ToolTip="Screenshots can contain visible private data. Keep this off unless you reviewed the image."
+                          Margin="0,8,0,0" />
             </StackPanel>
         </Grid>
         </ScrollViewer>

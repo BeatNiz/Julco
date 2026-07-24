@@ -578,6 +578,11 @@
                                     ToolTip="Generate copy-ready issue tracker reports for GitHub Issues, Jira, and generic systems."
                                     Click="IssueTrackerButton_Click"
                                     Margin="4,4,0,0" />
+                            <Button x:Name="PrivacyPreviewButton"
+                                    Content="Privacy"
+                                    ToolTip="Preview redaction and export a safe copy of the selected capture."
+                                    Click="PrivacyPreviewButton_Click"
+                                    Margin="0,4,4,0" />
                         </UniformGrid>
                         <UniformGrid x:Name="ResultActionsGrid"
                                      Columns="2"

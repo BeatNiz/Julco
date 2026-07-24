@@ -35,6 +35,7 @@ public partial class SettingsWindow : Window
         RedactCookiesCheckBox.IsChecked = settings.Privacy.RedactCookies;
         RedactPrivateUrlsCheckBox.IsChecked = settings.Privacy.RedactPrivateUrls;
         RedactSelectedTextCheckBox.IsChecked = settings.Privacy.RedactSelectedText;
+        IncludeScreenshotsInSafeExportsCheckBox.IsChecked = settings.Privacy.IncludeScreenshotsInSafeExports;
         ApplyTheme(settings.Theme);
     }
 
@@ -135,7 +136,8 @@ public partial class SettingsWindow : Window
                 RedactTokens = RedactTokensCheckBox.IsChecked == true,
                 RedactCookies = RedactCookiesCheckBox.IsChecked == true,
                 RedactPrivateUrls = RedactPrivateUrlsCheckBox.IsChecked == true,
-                RedactSelectedText = RedactSelectedTextCheckBox.IsChecked == true
+                RedactSelectedText = RedactSelectedTextCheckBox.IsChecked == true,
+                IncludeScreenshotsInSafeExports = IncludeScreenshotsInSafeExportsCheckBox.IsChecked == true
             },
             Keyboard = keyboardSettings,
             Ui = Settings.Ui with

@@ -167,6 +167,8 @@ public partial class MainWindow : Window
 
     private void IssueTrackerButton_Click(object sender, RoutedEventArgs e) => GenerateIssueTrackerReports();
 
+    private void PrivacyPreviewButton_Click(object sender, RoutedEventArgs e) => ShowPrivacyPreview();
+
     private async void UsageProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isApplyingSettings)
@@ -1349,6 +1351,7 @@ public partial class MainWindow : Window
         CompareCapturesButton.Content = compact ? "Diff" : "Compare";
         ExportReportButton.Content = compact ? "Rpt" : "Report";
         IssueTrackerButton.Content = compact ? "Bug" : "Issue";
+        PrivacyPreviewButton.Content = compact ? "Safe" : "Privacy";
         ShowIssuesButton.Content = compact ? "Audit" : "Issues";
 
         foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
@@ -1598,6 +1601,7 @@ public partial class MainWindow : Window
             [CompareCapturesButton] = "Compare",
             [ExportReportButton] = "Report",
             [IssueTrackerButton] = "Issue",
+            [PrivacyPreviewButton] = "Privacy",
             [ShowImagesButton] = "Images",
             [ShowIssuesButton] = "Issues",
             [CopyHtmlButton] = "Copy HTML",
@@ -2220,6 +2224,100 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ShowPrivacyPreview()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture before opening privacy preview.");
+            return;
+        }
+
+        try
+        {
+            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName);
+            var model = PrivacyPreviewModel.Create(
+                report,
+                GetPrivacyOptions(),
+                _settings.Privacy.IncludeScreenshotsInSafeExports);
+            var window = new PrivacyPreviewWindow(model, ExportSafePackage)
+            {
+                Owner = this,
+                Topmost = _settings.Ui.KeepResultWindowsTopmost
+            };
+            PlaceResultWindow(window);
+            window.Show();
+            SetStatus(model.HasChanges
+                ? "Privacy preview opened with redaction findings."
+                : "Privacy preview opened; no configured sensitive patterns found.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Privacy preview failed: {exception.Message}");
+        }
+    }
+
+    private string ExportSafePackage(PrivacyPreviewModel model)
+    {
+        var safeDirectory = Path.Combine(
+            model.Original.CaptureDirectory,
+            $"privacy-safe-{DateTime.Now:yyyyMMdd-HHmmss}");
+        Directory.CreateDirectory(safeDirectory);
+
+        var safeReport = model.Redacted with { ScreenshotPath = string.Empty };
+        var markdownPath = Path.Combine(safeDirectory, "safe-report.md");
+        var htmlPath = Path.Combine(safeDirectory, "safe-report.html");
+        var pdfPath = Path.Combine(safeDirectory, "safe-report.pdf");
+        File.WriteAllText(markdownPath, safeReport.BuildMarkdown(), Encoding.UTF8);
+        File.WriteAllText(htmlPath, safeReport.BuildHtml(), Encoding.UTF8);
+        SimplePdfReportWriter.Write(pdfPath, safeReport);
+
+        File.WriteAllText(
+            Path.Combine(safeDirectory, "privacy-summary.md"),
+            BuildPrivacySummaryMarkdown(model),
+            Encoding.UTF8);
+        File.WriteAllText(Path.Combine(safeDirectory, "dom.safe.html"), safeReport.Dom, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(safeDirectory, "computed.safe.css"), safeReport.ComputedCss, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(safeDirectory, "console.safe.txt"), safeReport.Console, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(safeDirectory, "attributes.safe.txt"), safeReport.Attributes, Encoding.UTF8);
+        File.WriteAllText(
+            Path.Combine(safeDirectory, "images.safe.json"),
+            JsonSerializer.Serialize(safeReport.Images, new JsonSerializerOptions { WriteIndented = true }),
+            Encoding.UTF8);
+
+        if (model.IncludeScreenshotInSafeExport && File.Exists(model.Original.ScreenshotPath))
+        {
+            File.Copy(model.Original.ScreenshotPath, Path.Combine(safeDirectory, "screenshot-unredacted.png"), overwrite: true);
+        }
+
+        SetStatus($"Safe privacy package exported: {safeDirectory}");
+        return safeDirectory;
+    }
+
+    private static string BuildPrivacySummaryMarkdown(PrivacyPreviewModel model)
+    {
+        return string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                "# Julco Privacy Summary",
+                string.Empty,
+                model.SummaryText,
+                string.Empty,
+                "## Policy",
+                string.Empty,
+                model.IncludeScreenshotInSafeExport
+                    ? "Screenshot was included because Settings allows screenshots in safe exports. Review visual content before sharing."
+                    : "Screenshot was omitted because safe exports do not include visual captures by default.",
+                string.Empty,
+                "## Source",
+                string.Empty,
+                $"- Capture: {model.Original.CaptureDirectory}",
+                $"- Page: {model.Redacted.PageTitle}",
+                $"- URL: {model.Redacted.PageUrl}",
+                $"- Selector: {model.Redacted.Selector}"
+            });
+    }
+
     private void SetBusy(bool isBusy, string? message = null)
     {
         LaunchChromeButton.IsEnabled = !isBusy;
@@ -2240,6 +2338,7 @@ public partial class MainWindow : Window
         CompareCapturesButton.IsEnabled = !isBusy;
         ExportReportButton.IsEnabled = !isBusy;
         IssueTrackerButton.IsEnabled = !isBusy;
+        PrivacyPreviewButton.IsEnabled = !isBusy;
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
