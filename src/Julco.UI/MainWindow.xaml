@@ -615,12 +615,66 @@
                     </Grid>
                 </TabItem>
                 <TabItem Header="Computed">
-                    <TextBox x:Name="ComputedTextBox"
-                             IsReadOnly="True"
-                             AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
-                             FontFamily="Consolas" />
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="1.2*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="CSS explainer"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedText}"
+                                   Margin="8,6,8,4" />
+
+                        <DataGrid x:Name="CssExplanationGrid"
+                                  Grid.Row="1"
+                                  IsReadOnly="True"
+                                  AutoGenerateColumns="False"
+                                  HeadersVisibility="Column"
+                                  Background="{StaticResource InputBackground}"
+                                  Foreground="{StaticResource PrimaryText}"
+                                  BorderBrush="{StaticResource BorderColor}"
+                                  GridLinesVisibility="Horizontal"
+                                  Margin="8,0,8,8">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Property"
+                                                    Binding="{Binding Property}"
+                                                    Width="150" />
+                                <DataGridTextColumn Header="Value"
+                                                    Binding="{Binding Value}"
+                                                    Width="150" />
+                                <DataGridTextColumn Header="Category"
+                                                    Binding="{Binding Category}"
+                                                    Width="115" />
+                                <DataGridTextColumn Header="What it does"
+                                                    Binding="{Binding Explanation}"
+                                                    Width="1.2*" />
+                                <DataGridTextColumn Header="Why it matters here"
+                                                    Binding="{Binding PracticalHint}"
+                                                    Width="1.4*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Grid.Row="2"
+                                   Text="Full computed CSS"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedText}"
+                                   Margin="8,0,8,4" />
+
+                        <TextBox x:Name="ComputedTextBox"
+                                 Grid.Row="3"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas"
+                                 Background="{StaticResource InputBackground}"
+                                 Foreground="{StaticResource PrimaryText}"
+                                 BorderBrush="{StaticResource BorderColor}"
+                                 Margin="8,0,8,8" />
+                    </Grid>
                 </TabItem>
                 <TabItem Header="CSS Rules">
                     <TextBox x:Name="RulesTextBox"

@@ -107,7 +107,7 @@ public partial class MainWindow : Window
 
     private void ShowDomButton_Click(object sender, RoutedEventArgs e) => ShowDomWindow();
 
-    private void ShowCssButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Computed CSS", ComputedTextBox.Text);
+    private void ShowCssButton_Click(object sender, RoutedEventArgs e) => ShowCssWindow();
 
     private void ShowConsoleButton_Click(object sender, RoutedEventArgs e) => ShowResultWindow("Console", ConsoleTextBox.Text);
 
@@ -409,6 +409,7 @@ public partial class MainWindow : Window
         DomSummaryTextBox.Text = DomSummaryBuilder.ToDisplayText(domSummary);
         DomImportantAttributesGrid.ItemsSource = domSummary.ImportantAttributes;
         DomTextBox.Text = DomFormatter.PrettyPrint(result.OuterHtml);
+        CssExplanationGrid.ItemsSource = CssExplanationBuilder.Build(result.ComputedStyle);
         ComputedTextBox.Text = BuildComputedCss(result);
         RulesTextBox.Text = string.Join(Environment.NewLine, result.MatchedCssRules);
         ConsoleTextBox.Text = result.ConsoleMessages.Count == 0
@@ -859,6 +860,21 @@ public partial class MainWindow : Window
                 _currentInspection.OuterHtml,
                 _currentInspection.TagName,
                 _currentInspection.Selector));
+    }
+
+    private void ShowCssWindow()
+    {
+        if (_currentInspection is null)
+        {
+            SetStatus("No CSS to show.");
+            return;
+        }
+
+        ToggleResultWindow(
+            "CSS",
+            () => new CssResultWindow(new SelectorInspectionResultView(
+                CssExplanationBuilder.Build(_currentInspection.ComputedStyle),
+                BuildComputedCss(_currentInspection))));
     }
 
     private void ShowResultWindow(string title, string content)
