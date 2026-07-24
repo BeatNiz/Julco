@@ -141,6 +141,8 @@ public partial class MainWindow : Window
 
     private void ExportReportButton_Click(object sender, RoutedEventArgs e) => ExportSelectedCaptureReport();
 
+    private void IssueTrackerButton_Click(object sender, RoutedEventArgs e) => GenerateIssueTrackerReports();
+
     private async void UsageProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isApplyingSettings)
@@ -1192,6 +1194,7 @@ public partial class MainWindow : Window
         EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
         CompareCapturesButton.Content = compact ? "Diff" : "Compare";
         ExportReportButton.Content = compact ? "Rpt" : "Report";
+        IssueTrackerButton.Content = compact ? "Bug" : "Issue";
         ShowIssuesButton.Content = compact ? "Audit" : "Issues";
 
         foreach (var button in GetButtons(CaptureActionsGrid).Concat(GetButtons(ResultActionsGrid)))
@@ -1358,7 +1361,7 @@ public partial class MainWindow : Window
                 "Prioritizes reproducible issues, console signals, evidence packages, notes, and before/after comparison.",
                 "Check issues first, confirm console messages, capture evidence, add notes, then compare fixes.",
                 new[] { "Issues", "Console", "DOM", "Computed", "Attributes", "CSS Rules" },
-                new[] { "Evidence capture", "Notes", "Compare", "Report" }),
+                new[] { "Evidence capture", "Notes", "Compare", "Report", "Issue" }),
             new UsageProfileDefinition(
                 UsageProfile.Frontend,
                 "Frontend",
@@ -1379,7 +1382,7 @@ public partial class MainWindow : Window
                 "Prioritizes labels, alt text, roles, keyboard/accessibility risks, visibility, and contrast issues.",
                 "Start with detected issues, verify attributes and DOM semantics, then document impact in notes.",
                 new[] { "Issues", "Attributes", "DOM", "Computed", "Console", "CSS Rules" },
-                new[] { "Issues", "Attributes", "Notes", "Report" })
+                new[] { "Issues", "Attributes", "Notes", "Report", "Issue" })
         };
 
         UsageProfileComboBox.ItemsSource = _usageProfiles;
@@ -1449,6 +1452,7 @@ public partial class MainWindow : Window
             [EditEvidenceNotesButton] = "Notes",
             [CompareCapturesButton] = "Compare",
             [ExportReportButton] = "Report",
+            [IssueTrackerButton] = "Issue",
             [ShowImagesButton] = "Images",
             [ShowIssuesButton] = "Issues",
             [CopyHtmlButton] = "Copy HTML",
@@ -2025,6 +2029,49 @@ public partial class MainWindow : Window
         }
     }
 
+    private void GenerateIssueTrackerReports()
+    {
+        if (CaptureFilesListBox.SelectedItem is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture before creating issue tracker drafts.");
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Building issue tracker drafts...");
+            var report = CaptureReport.FromDirectory(capture.DirectoryPath, GetActiveUsageProfile().DisplayName);
+            var outputDirectory = Path.Combine(capture.DirectoryPath, "issue-trackers");
+            Directory.CreateDirectory(outputDirectory);
+
+            var drafts = IssueTrackerDraftFactory.Create(report, outputDirectory);
+            foreach (var draft in drafts)
+            {
+                File.WriteAllText(
+                    draft.FilePath,
+                    $"{draft.Title}{Environment.NewLine}{Environment.NewLine}{draft.Body}",
+                    Encoding.UTF8);
+            }
+
+            var window = new IssueTrackerWindow(drafts, outputDirectory)
+            {
+                Owner = this,
+                Topmost = _settings.Ui.KeepResultWindowsTopmost
+            };
+            PlaceResultWindow(window);
+            window.Show();
+            SetStatus($"Issue tracker drafts generated: {outputDirectory}");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Issue tracker draft failed: {exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void SetBusy(bool isBusy, string? message = null)
     {
         LaunchChromeButton.IsEnabled = !isBusy;
@@ -2044,6 +2091,7 @@ public partial class MainWindow : Window
         EditEvidenceNotesButton.IsEnabled = !isBusy;
         CompareCapturesButton.IsEnabled = !isBusy;
         ExportReportButton.IsEnabled = !isBusy;
+        IssueTrackerButton.IsEnabled = !isBusy;
         CopyHtmlButton.IsEnabled = !isBusy;
         CopyCssButton.IsEnabled = !isBusy;
         ExportJsonButton.IsEnabled = !isBusy;
@@ -2551,6 +2599,224 @@ public partial class MainWindow : Window
             {
                 yield return remaining;
             }
+        }
+    }
+
+    private static class IssueTrackerDraftFactory
+    {
+        public static IReadOnlyList<IssueTrackerDraft> Create(CaptureReport report, string outputDirectory)
+        {
+            Directory.CreateDirectory(outputDirectory);
+            var title = BuildTitle(report);
+            return new[]
+            {
+                new IssueTrackerDraft(
+                    "GitHub Issues",
+                    title,
+                    BuildGitHubBody(report),
+                    Path.Combine(outputDirectory, "github-issue.md")),
+                new IssueTrackerDraft(
+                    "Jira",
+                    title,
+                    BuildJiraBody(report),
+                    Path.Combine(outputDirectory, "jira-issue.txt")),
+                new IssueTrackerDraft(
+                    "Generic ticket",
+                    title,
+                    BuildGenericBody(report),
+                    Path.Combine(outputDirectory, "generic-ticket.txt"))
+            };
+        }
+
+        private static string BuildTitle(CaptureReport report)
+        {
+            var severity = report.Notes.HasContent ? report.Notes.Severity : "Needs review";
+            var tag = string.IsNullOrWhiteSpace(report.TagName) ? "element" : report.TagName.ToLowerInvariant();
+            var page = string.IsNullOrWhiteSpace(report.PageTitle) || report.PageTitle == "-"
+                ? Shorten(report.PageUrl, 54)
+                : Shorten(report.PageTitle, 54);
+            return $"[{severity}] {tag} issue on {page}";
+        }
+
+        private static string BuildGitHubBody(CaptureReport report)
+        {
+            return string.Join(
+                Environment.NewLine,
+                "## Summary",
+                BuildSummary(report),
+                string.Empty,
+                "## Current behavior",
+                "- [ ] Confirm the visible behavior in the attached Julco screenshot.",
+                "- [ ] Confirm whether this reproduces in the same browser/profile.",
+                string.Empty,
+                "## Expected behavior",
+                "- [ ] Describe the expected UI, DOM, CSS, accessibility, or content behavior.",
+                string.Empty,
+                "## Evidence",
+                $"- Screenshot: `{RelativeEvidencePath(report, "screenshot.png")}`",
+                $"- HTML report: `{RelativeEvidencePath(report, "report/report.html")}`",
+                $"- PDF report: `{RelativeEvidencePath(report, "report/report.pdf")}`",
+                $"- Markdown report: `{RelativeEvidencePath(report, "report/report.md")}`",
+                string.Empty,
+                "## Technical details",
+                BuildMarkdownDetails(report),
+                string.Empty,
+                "## Notes",
+                BuildNotes(report),
+                string.Empty,
+                "## Common issues detected",
+                string.IsNullOrWhiteSpace(report.CommonIssues) ? "_No issue report found._" : report.CommonIssues);
+        }
+
+        private static string BuildJiraBody(CaptureReport report)
+        {
+            return string.Join(
+                Environment.NewLine,
+                "h2. Summary",
+                BuildSummary(report),
+                string.Empty,
+                "h2. Current behavior",
+                "* Confirm the visible behavior in the attached Julco screenshot.",
+                "* Confirm whether this reproduces in the same browser/profile.",
+                string.Empty,
+                "h2. Expected behavior",
+                "* Describe the expected UI, DOM, CSS, accessibility, or content behavior.",
+                string.Empty,
+                "h2. Evidence",
+                $"* Screenshot: {{code}}{RelativeEvidencePath(report, "screenshot.png")}{{code}}",
+                $"* HTML report: {{code}}{RelativeEvidencePath(report, "report/report.html")}{{code}}",
+                $"* PDF report: {{code}}{RelativeEvidencePath(report, "report/report.pdf")}{{code}}",
+                $"* Markdown report: {{code}}{RelativeEvidencePath(report, "report/report.md")}{{code}}",
+                string.Empty,
+                "h2. Technical details",
+                BuildJiraDetails(report),
+                string.Empty,
+                "h2. Notes",
+                BuildNotes(report),
+                string.Empty,
+                "h2. Common issues detected",
+                string.IsNullOrWhiteSpace(report.CommonIssues) ? "No issue report found." : report.CommonIssues);
+        }
+
+        private static string BuildGenericBody(CaptureReport report)
+        {
+            return string.Join(
+                Environment.NewLine,
+                "SUMMARY",
+                BuildSummary(report),
+                string.Empty,
+                "WHAT HAPPENED",
+                "Confirm the visible behavior in the attached Julco screenshot.",
+                string.Empty,
+                "WHAT SHOULD HAPPEN",
+                "Describe the expected UI, DOM, CSS, accessibility, or content behavior.",
+                string.Empty,
+                "EVIDENCE FILES",
+                $"- {RelativeEvidencePath(report, "screenshot.png")}",
+                $"- {RelativeEvidencePath(report, "report/report.html")}",
+                $"- {RelativeEvidencePath(report, "report/report.pdf")}",
+                $"- {RelativeEvidencePath(report, "report/report.md")}",
+                string.Empty,
+                "TECHNICAL DETAILS",
+                BuildPlainDetails(report),
+                string.Empty,
+                "NOTES",
+                BuildNotes(report),
+                string.Empty,
+                "COMMON ISSUES",
+                string.IsNullOrWhiteSpace(report.CommonIssues) ? "No issue report found." : report.CommonIssues);
+        }
+
+        private static string BuildSummary(CaptureReport report)
+        {
+            if (!string.IsNullOrWhiteSpace(report.Notes.Observation))
+            {
+                return report.Notes.Observation.Trim();
+            }
+
+            return $"Julco captured `{report.Selector}` on {report.PageUrl}. Review the attached evidence package for visual, DOM, CSS, console, and accessibility signals.";
+        }
+
+        private static string BuildMarkdownDetails(CaptureReport report)
+        {
+            return string.Join(
+                Environment.NewLine,
+                $"| Field | Value |",
+                $"| --- | --- |",
+                $"| URL | {NormalizeMarkdownLine(report.PageUrl)} |",
+                $"| Page | {NormalizeMarkdownLine(report.PageTitle)} |",
+                $"| Browser | {NormalizeMarkdownLine(report.Browser)} |",
+                $"| Profile | {NormalizeMarkdownLine(report.UsageProfile)} |",
+                $"| Element | `{NormalizeMarkdownLine(report.TagName)}` |",
+                $"| Selector | `{NormalizeMarkdownLine(report.Selector)}` |",
+                $"| Lens frame | {report.Frame.Width:0}x{report.Frame.Height:0} at {report.Frame.X:0},{report.Frame.Y:0} |",
+                $"| Center | {report.Frame.CenterX:0},{report.Frame.CenterY:0} |",
+                $"| Screen | {NormalizeMarkdownLine(report.Frame.ScreenName)} {report.Frame.ScreenWidth}x{report.Frame.ScreenHeight} |",
+                $"| Images detected | {report.Images.Count} |");
+        }
+
+        private static string BuildJiraDetails(CaptureReport report)
+        {
+            return string.Join(
+                Environment.NewLine,
+                $"* URL: {report.PageUrl}",
+                $"* Page: {report.PageTitle}",
+                $"* Browser: {report.Browser}",
+                $"* Profile: {report.UsageProfile}",
+                $"* Element: {report.TagName}",
+                $"* Selector: {{code}}{report.Selector}{{code}}",
+                $"* Lens frame: {report.Frame.Width:0}x{report.Frame.Height:0} at {report.Frame.X:0},{report.Frame.Y:0}",
+                $"* Center: {report.Frame.CenterX:0},{report.Frame.CenterY:0}",
+                $"* Screen: {report.Frame.ScreenName} {report.Frame.ScreenWidth}x{report.Frame.ScreenHeight}",
+                $"* Images detected: {report.Images.Count}");
+        }
+
+        private static string BuildPlainDetails(CaptureReport report)
+        {
+            return string.Join(
+                Environment.NewLine,
+                $"URL: {report.PageUrl}",
+                $"Page: {report.PageTitle}",
+                $"Browser: {report.Browser}",
+                $"Profile: {report.UsageProfile}",
+                $"Element: {report.TagName}",
+                $"Selector: {report.Selector}",
+                $"Lens frame: {report.Frame.Width:0}x{report.Frame.Height:0} at {report.Frame.X:0},{report.Frame.Y:0}",
+                $"Center: {report.Frame.CenterX:0},{report.Frame.CenterY:0}",
+                $"Screen: {report.Frame.ScreenName} {report.Frame.ScreenWidth}x{report.Frame.ScreenHeight}",
+                $"Images detected: {report.Images.Count}");
+        }
+
+        private static string BuildNotes(CaptureReport report)
+        {
+            if (!report.Notes.HasContent)
+            {
+                return "No notes added.";
+            }
+
+            return string.Join(
+                Environment.NewLine,
+                $"- Category: {report.Notes.Category}",
+                $"- Severity: {report.Notes.Severity}",
+                $"- Status: {report.Notes.Status}",
+                $"- Tags: {NormalizeMarkdownLine(report.Notes.Tags)}",
+                string.Empty,
+                report.Notes.Observation.Trim());
+        }
+
+        private static string RelativeEvidencePath(CaptureReport report, string relativePath)
+        {
+            return Path.Combine(report.CaptureDirectory, relativePath);
+        }
+
+        private static string Shorten(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
+            {
+                return value ?? string.Empty;
+            }
+
+            return value[..Math.Max(0, maxLength - 3)] + "...";
         }
     }
 

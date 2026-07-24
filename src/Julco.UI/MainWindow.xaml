@@ -573,6 +573,11 @@
                                     ToolTip="Export a polished HTML, PDF, and Markdown report for the selected capture."
                                     Click="ExportReportButton_Click"
                                     Margin="0,4,4,0" />
+                            <Button x:Name="IssueTrackerButton"
+                                    Content="Issue"
+                                    ToolTip="Generate copy-ready issue tracker reports for GitHub Issues, Jira, and generic systems."
+                                    Click="IssueTrackerButton_Click"
+                                    Margin="4,4,0,0" />
                         </UniformGrid>
                         <UniformGrid x:Name="ResultActionsGrid"
                                      Columns="2"
