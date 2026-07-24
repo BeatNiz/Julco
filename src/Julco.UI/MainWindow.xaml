@@ -408,6 +408,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition x:Name="HistoryRow" Height="*" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition x:Name="CapturesRow" Height="1.2*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
@@ -425,8 +426,63 @@
                                    Foreground="{StaticResource MutedText}"
                                    Margin="0,10,0,4" />
 
+                        <Grid Grid.Row="2" Margin="0,0,0,6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox x:Name="CaptureSearchTextBox"
+                                     Grid.Row="0"
+                                     Grid.Column="0"
+                                     MinHeight="28"
+                                     Padding="8,4"
+                                     Background="{StaticResource InputBackground}"
+                                     Foreground="{StaticResource PrimaryText}"
+                                     BorderBrush="{StaticResource BorderColor}"
+                                     ToolTip="Search by URL, selector, browser, tag, note, tag label, or folder name."
+                                     TextChanged="CaptureSearchTextBox_TextChanged" />
+                            <Button x:Name="ClearCaptureFiltersButton"
+                                    Grid.Row="0"
+                                    Grid.Column="2"
+                                    Content="Clear"
+                                    ToolTip="Clear capture search and filters."
+                                    Click="ClearCaptureFiltersButton_Click" />
+
+                            <WrapPanel Grid.Row="1"
+                                       Grid.Column="0"
+                                       Grid.ColumnSpan="3"
+                                       Margin="0,6,0,0">
+                                <ComboBox x:Name="CaptureBrowserFilterComboBox"
+                                          Width="82"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          SelectionChanged="CaptureFilter_SelectionChanged" />
+                                <ComboBox x:Name="CaptureStatusFilterComboBox"
+                                          Width="96"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          SelectionChanged="CaptureFilter_SelectionChanged" />
+                                <ComboBox x:Name="CaptureSeverityFilterComboBox"
+                                          Width="92"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          SelectionChanged="CaptureFilter_SelectionChanged" />
+                                <ComboBox x:Name="CaptureDateFilterComboBox"
+                                          Width="104"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          SelectionChanged="CaptureFilter_SelectionChanged" />
+                            </WrapPanel>
+                        </Grid>
+
                         <ListBox x:Name="CaptureFilesListBox"
-                                 Grid.Row="2"
+                                 Grid.Row="3"
                                  DisplayMemberPath="DisplayName"
                                  MinHeight="90"
                                  Background="{StaticResource ListBackground}"
@@ -434,7 +490,7 @@
                                  BorderBrush="{StaticResource BorderColor}"
                                  SelectionChanged="CaptureFilesListBox_SelectionChanged" />
 
-                        <Border Grid.Row="3"
+                        <Border Grid.Row="4"
                                 Background="{StaticResource InputBackground}"
                                 BorderBrush="{StaticResource BorderColor}"
                                 BorderThickness="1"

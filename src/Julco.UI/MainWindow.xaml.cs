@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private readonly JsonSettingsStore _settingsStore = new(GetSettingsPath());
     private readonly List<string> _history = new();
     private readonly List<CaptureFileRecord> _captureFiles = new();
+    private readonly List<CaptureFileRecord> _filteredCaptureFiles = new();
     private readonly DispatcherTimer _autoLensTimer;
     private SelectorInspectionResult? _currentInspection;
     private LensWindow? _lensWindow;
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeCaptureFilters();
         _autoLensTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(550)
@@ -132,6 +134,12 @@ public partial class MainWindow : Window
     private void CompareCapturesButton_Click(object sender, RoutedEventArgs e) => CompareCaptures();
 
     private void CaptureFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateCaptureNotesPreview();
+
+    private void CaptureSearchTextBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyCaptureFilters();
+
+    private void CaptureFilter_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyCaptureFilters();
+
+    private void ClearCaptureFiltersButton_Click(object sender, RoutedEventArgs e) => ClearCaptureFilters();
 
     private void CopyHtmlButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1492,6 +1500,9 @@ public partial class MainWindow : Window
 
     private void LoadCaptures()
     {
+        var selectedDirectory = CaptureFilesListBox.SelectedItem is CaptureFileRecord selected
+            ? selected.DirectoryPath
+            : null;
         _captureFiles.Clear();
         var root = GetCaptureRootDirectory();
         Directory.CreateDirectory(root);
@@ -1501,16 +1512,155 @@ public partial class MainWindow : Window
             _captureFiles.Add(CaptureFileRecord.FromDirectory(directory));
         }
 
+        RefreshDynamicCaptureFilters();
+        ApplyCaptureFilters(selectedDirectory);
+    }
+
+    private void ApplyCaptureFilters(string? preferredSelection = null)
+    {
+        if (CaptureFilesListBox is null
+            || CaptureSearchTextBox is null
+            || CaptureBrowserFilterComboBox is null
+            || CaptureStatusFilterComboBox is null
+            || CaptureSeverityFilterComboBox is null
+            || CaptureDateFilterComboBox is null)
+        {
+            return;
+        }
+
+        var query = CaptureSearchTextBox?.Text?.Trim() ?? string.Empty;
+        var browser = GetFilterValue(CaptureBrowserFilterComboBox);
+        var status = GetFilterValue(CaptureStatusFilterComboBox);
+        var severity = GetFilterValue(CaptureSeverityFilterComboBox);
+        var dateRange = GetFilterValue(CaptureDateFilterComboBox);
+
+        var filtered = _captureFiles
+            .Where(capture => MatchesQuery(capture, query))
+            .Where(capture => string.IsNullOrWhiteSpace(browser) || capture.Browser.Equals(browser, StringComparison.OrdinalIgnoreCase))
+            .Where(capture => string.IsNullOrWhiteSpace(status) || capture.NoteStatus.Equals(status, StringComparison.OrdinalIgnoreCase))
+            .Where(capture => string.IsNullOrWhiteSpace(severity) || capture.NoteSeverity.Equals(severity, StringComparison.OrdinalIgnoreCase))
+            .Where(capture => MatchesDateRange(capture, dateRange))
+            .OrderByDescending(capture => capture.CreatedAt)
+            .ToArray();
+
+        _filteredCaptureFiles.Clear();
+        _filteredCaptureFiles.AddRange(filtered);
         CaptureFilesListBox.ItemsSource = null;
-        CaptureFilesListBox.ItemsSource = _captureFiles;
+        CaptureFilesListBox.ItemsSource = _filteredCaptureFiles;
+
+        if (!string.IsNullOrWhiteSpace(preferredSelection))
+        {
+            SelectCapture(preferredSelection);
+            if (CaptureFilesListBox.SelectedItem is null && _filteredCaptureFiles.Count > 0)
+            {
+                CaptureFilesListBox.SelectedIndex = 0;
+            }
+        }
+        else if (_filteredCaptureFiles.Count > 0 && CaptureFilesListBox.SelectedItem is null)
+        {
+            CaptureFilesListBox.SelectedIndex = 0;
+        }
+
+        SetCaptureFilterStatus();
         UpdateCaptureNotesPreview();
     }
 
     private void SelectCapture(string directory)
     {
-        CaptureFilesListBox.SelectedItem = _captureFiles.FirstOrDefault(item =>
+        CaptureFilesListBox.SelectedItem = _filteredCaptureFiles.FirstOrDefault(item =>
             string.Equals(item.DirectoryPath, directory, StringComparison.OrdinalIgnoreCase));
         UpdateCaptureNotesPreview();
+    }
+
+    private void InitializeCaptureFilters()
+    {
+        CaptureBrowserFilterComboBox.ItemsSource = new[] { "All browsers" };
+        CaptureStatusFilterComboBox.ItemsSource = new[] { "All statuses", "Open", "Needs review", "Confirmed", "Fixed", "Won't fix" };
+        CaptureSeverityFilterComboBox.ItemsSource = new[] { "All severities", "Low", "Medium", "High", "Critical" };
+        CaptureDateFilterComboBox.ItemsSource = new[] { "Any date", "Today", "Last 7 days", "Last 30 days" };
+
+        CaptureBrowserFilterComboBox.SelectedIndex = 0;
+        CaptureStatusFilterComboBox.SelectedIndex = 0;
+        CaptureSeverityFilterComboBox.SelectedIndex = 0;
+        CaptureDateFilterComboBox.SelectedIndex = 0;
+    }
+
+    private void RefreshDynamicCaptureFilters()
+    {
+        var selectedBrowser = CaptureBrowserFilterComboBox.SelectedItem as string;
+        var browsers = new[] { "All browsers" }
+            .Concat(_captureFiles
+                .Select(capture => capture.Browser)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value))
+            .ToArray();
+
+        CaptureBrowserFilterComboBox.ItemsSource = browsers;
+        CaptureBrowserFilterComboBox.SelectedItem = browsers.Contains(selectedBrowser, StringComparer.OrdinalIgnoreCase)
+            ? selectedBrowser
+            : "All browsers";
+    }
+
+    private void ClearCaptureFilters()
+    {
+        CaptureSearchTextBox.Text = string.Empty;
+        CaptureBrowserFilterComboBox.SelectedIndex = 0;
+        CaptureStatusFilterComboBox.SelectedIndex = 0;
+        CaptureSeverityFilterComboBox.SelectedIndex = 0;
+        CaptureDateFilterComboBox.SelectedIndex = 0;
+        ApplyCaptureFilters();
+    }
+
+    private void SetCaptureFilterStatus()
+    {
+        var total = _captureFiles.Count;
+        var visible = _filteredCaptureFiles.Count;
+        if (total == visible)
+        {
+            SetStatus($"{total} capture(s) loaded.");
+            return;
+        }
+
+        SetStatus($"{visible} of {total} capture(s) match the current filters.");
+    }
+
+    private static string GetFilterValue(System.Windows.Controls.ComboBox comboBox)
+    {
+        var value = comboBox.SelectedItem as string ?? string.Empty;
+        return value.StartsWith("All ", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Any date", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : value;
+    }
+
+    private static bool MatchesQuery(CaptureFileRecord capture, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return true;
+        }
+
+        return query
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(term => capture.SearchText.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool MatchesDateRange(CaptureFileRecord capture, string dateRange)
+    {
+        if (string.IsNullOrWhiteSpace(dateRange))
+        {
+            return true;
+        }
+
+        var now = DateTimeOffset.Now;
+        return dateRange switch
+        {
+            "Today" => capture.CreatedAt.LocalDateTime.Date == now.LocalDateTime.Date,
+            "Last 7 days" => capture.CreatedAt >= now.AddDays(-7),
+            "Last 30 days" => capture.CreatedAt >= now.AddDays(-30),
+            _ => true
+        };
     }
 
     private void UpdateCaptureNotesPreview()
@@ -1651,17 +1801,18 @@ public partial class MainWindow : Window
 
     private void CompareCaptures()
     {
-        if (_captureFiles.Count < 2)
+        var comparisonSource = _filteredCaptureFiles.Count > 0 ? _filteredCaptureFiles : _captureFiles;
+        if (comparisonSource.Count < 2)
         {
-            SetStatus("Create at least two captures before comparing.");
+            SetStatus("Create at least two captures or clear filters before comparing.");
             return;
         }
 
         var selectedDirectory = CaptureFilesListBox.SelectedItem is CaptureFileRecord capture
             ? capture.DirectoryPath
-            : _captureFiles[0].DirectoryPath;
+            : comparisonSource[0].DirectoryPath;
         var window = new CaptureComparisonWindow(
-            _captureFiles.Select(item => item.DirectoryPath),
+            comparisonSource.Select(item => item.DirectoryPath),
             selectedDirectory)
         {
             Owner = this,
@@ -1859,7 +2010,17 @@ public partial class MainWindow : Window
     private sealed record CaptureFileRecord(
         string DirectoryPath,
         string DisplayName,
-        DateTimeOffset CreatedAt)
+        DateTimeOffset CreatedAt,
+        string Browser,
+        string Url,
+        string PageTitle,
+        string TagName,
+        string Selector,
+        string NoteStatus,
+        string NoteSeverity,
+        string NoteTags,
+        string NoteText,
+        string SearchText)
     {
         public static CaptureFileRecord FromDirectory(string directoryPath)
         {
@@ -1875,10 +2036,29 @@ public partial class MainWindow : Window
                         var noteMarker = notes.HasContent
                             ? $"  notes:{notes.Severity}/{notes.Status}"
                             : string.Empty;
+                        var displayName = $"{evidence.CreatedAt:MM-dd HH:mm}  evidence  {evidence.Element.TagName}  {evidence.Element.Selector}{noteMarker}";
                         return new CaptureFileRecord(
                             directoryPath,
-                            $"{evidence.CreatedAt:MM-dd HH:mm}  evidence  {evidence.Element.TagName}  {evidence.Element.Selector}{noteMarker}",
-                            evidence.CreatedAt);
+                            displayName,
+                            evidence.CreatedAt,
+                            evidence.Browser.Name,
+                            evidence.Page.Url,
+                            evidence.Page.Title,
+                            evidence.Element.TagName,
+                            evidence.Element.Selector,
+                            notes.Status,
+                            notes.Severity,
+                            notes.Tags,
+                            notes.Observation,
+                            BuildCaptureSearchText(
+                                directoryPath,
+                                displayName,
+                                evidence.Browser.Name,
+                                evidence.Page.Url,
+                                evidence.Page.Title,
+                                evidence.Element.TagName,
+                                evidence.Element.Selector,
+                                notes));
                     }
                 }
                 catch (JsonException)
@@ -1898,10 +2078,29 @@ public partial class MainWindow : Window
                         var noteMarker = notes.HasContent
                             ? $"  notes:{notes.Severity}/{notes.Status}"
                             : string.Empty;
+                        var displayName = $"{manifest.CreatedAt:MM-dd HH:mm}  {manifest.TagName}  {manifest.Selector}{noteMarker}";
                         return new CaptureFileRecord(
                             directoryPath,
-                            $"{manifest.CreatedAt:MM-dd HH:mm}  {manifest.TagName}  {manifest.Selector}{noteMarker}",
-                            manifest.CreatedAt);
+                            displayName,
+                            manifest.CreatedAt,
+                            "Unknown",
+                            manifest.Url,
+                            manifest.PageTitle,
+                            manifest.TagName,
+                            manifest.Selector,
+                            notes.Status,
+                            notes.Severity,
+                            notes.Tags,
+                            notes.Observation,
+                            BuildCaptureSearchText(
+                                directoryPath,
+                                displayName,
+                                "Unknown",
+                                manifest.Url,
+                                manifest.PageTitle,
+                                manifest.TagName,
+                                manifest.Selector,
+                                notes));
                     }
                 }
                 catch (JsonException)
@@ -1909,10 +2108,56 @@ public partial class MainWindow : Window
                 }
             }
 
+            var fallbackNotes = LoadCaptureNotes(directoryPath);
+            var fallbackName = Path.GetFileName(directoryPath);
             return new CaptureFileRecord(
                 directoryPath,
-                Path.GetFileName(directoryPath),
-                Directory.GetCreationTime(directoryPath));
+                fallbackName,
+                Directory.GetCreationTime(directoryPath),
+                "Unknown",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                fallbackNotes.Status,
+                fallbackNotes.Severity,
+                fallbackNotes.Tags,
+                fallbackNotes.Observation,
+                BuildCaptureSearchText(
+                    directoryPath,
+                    fallbackName,
+                    "Unknown",
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    fallbackNotes));
+        }
+
+        private static string BuildCaptureSearchText(
+            string directoryPath,
+            string displayName,
+            string browser,
+            string url,
+            string pageTitle,
+            string tagName,
+            string selector,
+            CaptureNotes notes)
+        {
+            return string.Join(
+                " ",
+                displayName,
+                browser,
+                url,
+                pageTitle,
+                tagName,
+                selector,
+                notes.Category,
+                notes.Severity,
+                notes.Status,
+                notes.Tags,
+                notes.Observation,
+                Path.GetFileName(directoryPath));
         }
     }
 }
