@@ -256,6 +256,8 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="90" />
@@ -267,8 +269,12 @@
                                     <TextBox x:Name="GitHubRepositoryTextBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" />
                                     <TextBlock Grid.Row="2" Text="Labels" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
                                     <TextBox x:Name="GitHubLabelsTextBox" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" ToolTip="Comma-separated labels. Julco does not create labels automatically." />
-                                    <TextBlock Grid.Row="3" Text="Token" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
-                                    <TextBox x:Name="GitHubTokenTextBox" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional. Leave blank to use JULCO_GITHUB_TOKEN." />
+                                    <TextBlock Grid.Row="3" Text="Assignees" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox x:Name="GitHubAssigneesTextBox" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional comma-separated GitHub usernames." />
+                                    <TextBlock Grid.Row="4" Text="Milestone" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox x:Name="GitHubMilestoneTextBox" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional GitHub milestone number." />
+                                    <TextBlock Grid.Row="5" Text="Token" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox x:Name="GitHubTokenTextBox" Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional. Leave blank to keep saved token or use JULCO_GITHUB_TOKEN." />
                                 </Grid>
                                 <Button x:Name="TestGitHubButton"
                                         Content="Test GitHub connection"
@@ -297,6 +303,7 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="90" />
@@ -308,10 +315,12 @@
                                     <TextBox x:Name="JiraProjectKeyTextBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" />
                                     <TextBlock Grid.Row="2" Text="Issue type" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
                                     <TextBox x:Name="JiraIssueTypeTextBox" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" />
-                                    <TextBlock Grid.Row="3" Text="Email" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
-                                    <TextBox x:Name="JiraEmailTextBox" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" />
-                                    <TextBlock Grid.Row="4" Text="Token" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
-                                    <TextBox x:Name="JiraApiTokenTextBox" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional. Leave blank to use JULCO_JIRA_API_TOKEN." />
+                                    <TextBlock Grid.Row="3" Text="Priority" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox x:Name="JiraPriorityTextBox" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional Jira priority name, such as High or Medium." />
+                                    <TextBlock Grid.Row="4" Text="Email" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox x:Name="JiraEmailTextBox" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" />
+                                    <TextBlock Grid.Row="5" Text="Token" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,8,0,0" />
+                                    <TextBox x:Name="JiraApiTokenTextBox" Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" ToolTip="Optional. Leave blank to keep saved token or use JULCO_JIRA_API_TOKEN." />
                                 </Grid>
                                 <Button x:Name="TestJiraButton"
                                         Content="Test Jira connection"

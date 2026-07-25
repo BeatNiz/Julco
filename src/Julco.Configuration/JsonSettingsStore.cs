@@ -44,7 +44,7 @@ public sealed class JsonSettingsStore
         await using var stream = File.Create(_path);
         await JsonSerializer.SerializeAsync(
             stream,
-            settings,
+            settings.WithProtectedSecrets(),
             SerializerOptions,
             cancellationToken);
     }

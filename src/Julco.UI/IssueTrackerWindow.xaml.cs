@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Julco.Core.Configuration;
@@ -103,6 +104,7 @@ public partial class IssueTrackerWindow : Window
         try
         {
             var result = await _client.SubmitAsync(draft, _settings, CancellationToken.None);
+            SaveSubmissionResult(draft, result);
             IntegrationStatusTextBlock.Text = result.Url is null
                 ? result.Message
                 : $"{result.Message} {result.Url}";
@@ -124,5 +126,21 @@ public partial class IssueTrackerWindow : Window
         {
             SubmitButton.IsEnabled = IssueTrackerClient.CanSubmit(draft, _settings);
         }
+    }
+
+    private void SaveSubmissionResult(IssueTrackerDraft draft, IssueTrackerSubmissionResult result)
+    {
+        Directory.CreateDirectory(_outputDirectory);
+        var record = new IssueTrackerSubmissionRecord(
+            DateTimeOffset.Now,
+            result.Provider,
+            draft.Title,
+            result.Succeeded,
+            result.Message,
+            result.Url,
+            _outputDirectory);
+        File.WriteAllText(
+            Path.Combine(_outputDirectory, "last-submission.json"),
+            JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

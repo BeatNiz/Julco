@@ -121,12 +121,23 @@ public sealed class IssueTrackerClient
             $"https://api.github.com/repos/{Uri.EscapeDataString(settings.GitHubOwner)}/{Uri.EscapeDataString(settings.GitHubRepository)}/issues");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ResolveGitHubToken());
-        request.Content = JsonContent(new
+        var issuePayload = new Dictionary<string, object?>
         {
-            title = draft.Title,
-            body = draft.Body,
-            labels = settings.GitHubLabelList
-        });
+            ["title"] = draft.Title,
+            ["body"] = draft.Body,
+            ["labels"] = settings.GitHubLabelList
+        };
+        if (settings.GitHubAssigneeList.Count > 0)
+        {
+            issuePayload["assignees"] = settings.GitHubAssigneeList;
+        }
+
+        if (settings.GitHubMilestoneNumber is int milestone)
+        {
+            issuePayload["milestone"] = milestone;
+        }
+
+        request.Content = JsonContent(issuePayload);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var payload = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -162,16 +173,19 @@ public sealed class IssueTrackerClient
         var authBytes = Encoding.UTF8.GetBytes($"{settings.JiraEmail}:{settings.ResolveJiraApiToken()}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Content = JsonContent(new
+        var fields = new Dictionary<string, object?>
         {
-            fields = new
-            {
-                project = new { key = settings.JiraProjectKey },
-                summary = draft.Title,
-                issuetype = new { name = settings.JiraIssueType },
-                description = BuildJiraDescription(draft.Body)
-            }
-        });
+            ["project"] = new { key = settings.JiraProjectKey },
+            ["summary"] = draft.Title,
+            ["issuetype"] = new { name = settings.JiraIssueType },
+            ["description"] = BuildJiraDescription(draft.Body)
+        };
+        if (!string.IsNullOrWhiteSpace(settings.JiraPriority))
+        {
+            fields["priority"] = new { name = settings.JiraPriority };
+        }
+
+        request.Content = JsonContent(new { fields });
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var payload = await response.Content.ReadAsStringAsync(cancellationToken);

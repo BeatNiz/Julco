@@ -38,4 +38,12 @@ public sealed record AppSettings(
             Ui = Ui ?? UiSettings.Default
         };
     }
+
+    public AppSettings WithProtectedSecrets()
+    {
+        return Normalized() with
+        {
+            IssueTrackers = IssueTrackers.WithProtectedSecrets()
+        };
+    }
 }

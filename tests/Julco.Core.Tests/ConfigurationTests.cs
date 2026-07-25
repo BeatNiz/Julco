@@ -103,6 +103,48 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public async Task JsonSettingsStoreProtectsIssueTrackerTokensOnSave()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"julco-settings-{Guid.NewGuid():N}.json");
+        var settings = AppSettings.Default with
+        {
+            IssueTrackers = new IssueTrackerSettings(
+                EnableGitHub: true,
+                GitHubOwner: "BeatNiz",
+                GitHubRepository: "Julco",
+                GitHubToken: "github-token",
+                GitHubLabels: "julco",
+                GitHubAssignees: "",
+                GitHubMilestone: "",
+                EnableJira: true,
+                JiraBaseUrl: "https://example.atlassian.net",
+                JiraProjectKey: "QA",
+                JiraIssueType: "Bug",
+                JiraPriority: "High",
+                JiraEmail: "user@example.com",
+                JiraApiToken: "jira-token")
+        };
+
+        try
+        {
+            await new JsonSettingsStore(path).SaveAsync(settings, CancellationToken.None);
+            var savedJson = await File.ReadAllTextAsync(path);
+
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.DoesNotContain("github-token", savedJson);
+                Assert.DoesNotContain("jira-token", savedJson);
+                Assert.Contains("dpapi:", savedJson);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+
+    [Fact]
     public void IssueTrackerSettingsNormalizeAndDetectConfiguration()
     {
         var settings = new IssueTrackerSettings(
@@ -111,10 +153,13 @@ public sealed class ConfigurationTests
             GitHubRepository: " Julco ",
             GitHubToken: " ghp_example ",
             GitHubLabels: " bug, julco, bug ",
+            GitHubAssignees: " alice, bob, alice ",
+            GitHubMilestone: " 7 ",
             EnableJira: true,
             JiraBaseUrl: " https://example.atlassian.net/ ",
             JiraProjectKey: " qa ",
             JiraIssueType: "",
+            JiraPriority: " High ",
             JiraEmail: " user@example.com ",
             JiraApiToken: " token ").Normalized();
 
@@ -125,6 +170,38 @@ public sealed class ConfigurationTests
         Assert.Equal("https://example.atlassian.net", settings.JiraBaseUrl);
         Assert.Equal("QA", settings.JiraProjectKey);
         Assert.Equal("Bug", settings.JiraIssueType);
+        Assert.Equal("High", settings.JiraPriority);
+        Assert.Equal(7, settings.GitHubMilestoneNumber);
         Assert.Equal(new[] { "bug", "julco" }, settings.GitHubLabelList);
+        Assert.Equal(new[] { "alice", "bob" }, settings.GitHubAssigneeList);
+    }
+
+    [Fact]
+    public void IssueTrackerSettingsProtectSecretsWithoutChangingResolvedTokens()
+    {
+        var settings = new IssueTrackerSettings(
+            EnableGitHub: true,
+            GitHubOwner: "BeatNiz",
+            GitHubRepository: "Julco",
+            GitHubToken: "github-token",
+            GitHubLabels: "julco",
+            GitHubAssignees: "",
+            GitHubMilestone: "",
+            EnableJira: true,
+            JiraBaseUrl: "https://example.atlassian.net",
+            JiraProjectKey: "QA",
+            JiraIssueType: "Bug",
+            JiraPriority: "High",
+            JiraEmail: "user@example.com",
+            JiraApiToken: "jira-token").WithProtectedSecrets();
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(SecretProtector.IsProtected(settings.GitHubToken));
+            Assert.True(SecretProtector.IsProtected(settings.JiraApiToken));
+        }
+
+        Assert.Equal("github-token", settings.ResolveGitHubToken());
+        Assert.Equal("jira-token", settings.ResolveJiraApiToken());
     }
 }

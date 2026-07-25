@@ -41,14 +41,21 @@ public partial class SettingsWindow : Window
         EnableGitHubCheckBox.IsChecked = Settings.IssueTrackers.EnableGitHub;
         GitHubOwnerTextBox.Text = Settings.IssueTrackers.GitHubOwner;
         GitHubRepositoryTextBox.Text = Settings.IssueTrackers.GitHubRepository;
-        GitHubTokenTextBox.Text = Settings.IssueTrackers.GitHubToken;
+        GitHubTokenTextBox.Text = SecretProtector.IsProtected(Settings.IssueTrackers.GitHubToken)
+            ? string.Empty
+            : Settings.IssueTrackers.GitHubToken;
         GitHubLabelsTextBox.Text = Settings.IssueTrackers.GitHubLabels;
+        GitHubAssigneesTextBox.Text = Settings.IssueTrackers.GitHubAssignees;
+        GitHubMilestoneTextBox.Text = Settings.IssueTrackers.GitHubMilestone;
         EnableJiraCheckBox.IsChecked = Settings.IssueTrackers.EnableJira;
         JiraBaseUrlTextBox.Text = Settings.IssueTrackers.JiraBaseUrl;
         JiraProjectKeyTextBox.Text = Settings.IssueTrackers.JiraProjectKey;
         JiraIssueTypeTextBox.Text = Settings.IssueTrackers.JiraIssueType;
+        JiraPriorityTextBox.Text = Settings.IssueTrackers.JiraPriority;
         JiraEmailTextBox.Text = Settings.IssueTrackers.JiraEmail;
-        JiraApiTokenTextBox.Text = Settings.IssueTrackers.JiraApiToken;
+        JiraApiTokenTextBox.Text = SecretProtector.IsProtected(Settings.IssueTrackers.JiraApiToken)
+            ? string.Empty
+            : Settings.IssueTrackers.JiraApiToken;
         WireIntegrationStatusEvents();
         UpdateIntegrationIndicators();
         ApplyTheme(settings.Theme);
@@ -214,14 +221,24 @@ public partial class SettingsWindow : Window
             EnableGitHubCheckBox.IsChecked == true,
             GitHubOwnerTextBox.Text,
             GitHubRepositoryTextBox.Text,
-            GitHubTokenTextBox.Text,
+            ResolveTokenInput(GitHubTokenTextBox.Text, Settings.IssueTrackers.GitHubToken),
             GitHubLabelsTextBox.Text,
+            GitHubAssigneesTextBox.Text,
+            GitHubMilestoneTextBox.Text,
             EnableJiraCheckBox.IsChecked == true,
             JiraBaseUrlTextBox.Text,
             JiraProjectKeyTextBox.Text,
             JiraIssueTypeTextBox.Text,
+            JiraPriorityTextBox.Text,
             JiraEmailTextBox.Text,
-            JiraApiTokenTextBox.Text).Normalized();
+            ResolveTokenInput(JiraApiTokenTextBox.Text, Settings.IssueTrackers.JiraApiToken)).Normalized();
+    }
+
+    private static string ResolveTokenInput(string currentInput, string storedToken)
+    {
+        return string.IsNullOrWhiteSpace(currentInput)
+            ? storedToken
+            : currentInput;
     }
 
     private void WireIntegrationStatusEvents()
@@ -232,11 +249,14 @@ public partial class SettingsWindow : Window
         GitHubRepositoryTextBox.TextChanged += IntegrationField_Changed;
         GitHubTokenTextBox.TextChanged += IntegrationField_Changed;
         GitHubLabelsTextBox.TextChanged += IntegrationField_Changed;
+        GitHubAssigneesTextBox.TextChanged += IntegrationField_Changed;
+        GitHubMilestoneTextBox.TextChanged += IntegrationField_Changed;
         EnableJiraCheckBox.Checked += IntegrationField_Changed;
         EnableJiraCheckBox.Unchecked += IntegrationField_Changed;
         JiraBaseUrlTextBox.TextChanged += IntegrationField_Changed;
         JiraProjectKeyTextBox.TextChanged += IntegrationField_Changed;
         JiraIssueTypeTextBox.TextChanged += IntegrationField_Changed;
+        JiraPriorityTextBox.TextChanged += IntegrationField_Changed;
         JiraEmailTextBox.TextChanged += IntegrationField_Changed;
         JiraApiTokenTextBox.TextChanged += IntegrationField_Changed;
     }
@@ -343,6 +363,14 @@ public partial class SettingsWindow : Window
                 || string.IsNullOrWhiteSpace(settings.GitHubRepository)))
         {
             ShowValidation("GitHub needs owner and repository when enabled.");
+            return false;
+        }
+
+        if (settings.EnableGitHub
+            && !string.IsNullOrWhiteSpace(settings.GitHubMilestone)
+            && settings.GitHubMilestoneNumber is null)
+        {
+            ShowValidation("GitHub milestone must be a positive milestone number.");
             return false;
         }
 
