@@ -8,8 +8,13 @@ public static class SimplePdfReportWriter
 {
     public static void Write(string path, CaptureReport report)
     {
+        Write(path, report, report.BuildPdfLines());
+    }
+
+    public static void Write(string path, CaptureReport report, IReadOnlyList<string> renderedLines)
+    {
         var image = PdfImage.TryLoad(report.ScreenshotPath);
-        var lines = report.BuildPdfLines();
+        var lines = renderedLines;
         var pages = lines.Chunk(42).ToArray();
         if (pages.Length == 0)
         {

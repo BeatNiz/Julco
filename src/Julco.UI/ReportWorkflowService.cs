@@ -13,12 +13,13 @@ public sealed class ReportWorkflowService
     {
         var report = CaptureReport.FromDirectory(captureDirectory, usageProfile)
             .Redacted(privacyOptions);
+        var context = CaptureReportTemplateStore.CreateContext(report);
         var reportDirectory = Path.Combine(captureDirectory, "report");
         Directory.CreateDirectory(reportDirectory);
 
-        File.WriteAllText(Path.Combine(reportDirectory, "report.md"), report.BuildMarkdown(), Encoding.UTF8);
-        File.WriteAllText(Path.Combine(reportDirectory, "report.html"), report.BuildHtml(), Encoding.UTF8);
-        SimplePdfReportWriter.Write(Path.Combine(reportDirectory, "report.pdf"), report);
+        File.WriteAllText(Path.Combine(reportDirectory, "report.md"), new MarkdownReportRenderer().Render(context), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(reportDirectory, "report.html"), new HtmlReportRenderer().Render(context), Encoding.UTF8);
+        new PdfReportRenderer().Write(Path.Combine(reportDirectory, "report.pdf"), context);
 
         return reportDirectory;
     }
@@ -31,9 +32,10 @@ public sealed class ReportWorkflowService
         Directory.CreateDirectory(safeDirectory);
 
         var safeReport = model.Redacted with { ScreenshotPath = string.Empty };
-        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.md"), safeReport.BuildMarkdown(), Encoding.UTF8);
-        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.html"), safeReport.BuildHtml(), Encoding.UTF8);
-        SimplePdfReportWriter.Write(Path.Combine(safeDirectory, "safe-report.pdf"), safeReport);
+        var safeContext = CaptureReportTemplateStore.CreateContext(safeReport);
+        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.md"), new MarkdownReportRenderer().Render(safeContext), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.html"), new HtmlReportRenderer().Render(safeContext), Encoding.UTF8);
+        new PdfReportRenderer().Write(Path.Combine(safeDirectory, "safe-report.pdf"), safeContext);
 
         File.WriteAllText(
             Path.Combine(safeDirectory, "privacy-summary.md"),
