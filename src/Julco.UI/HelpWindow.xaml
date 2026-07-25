@@ -68,6 +68,18 @@
                         Padding="14"
                         Margin="0,0,0,12">
                     <StackPanel>
+                        <TextBlock Text="Contextual Onboarding" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource HelpText}"
+                                   Text="Julco can show a small next-step card in the main panel while you learn the workflow. It reacts to the current state: browser, tabs, selector, lens, captures, library, and privacy preview. You can hide it or reset its progress from Settings > General." />
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{StaticResource PanelBackground}"
+                        BorderBrush="{StaticResource BorderColor}"
+                        BorderThickness="1"
+                        Padding="14"
+                        Margin="0,0,0,12">
+                    <StackPanel>
                         <TextBlock Text="Keyboard Shortcuts" Style="{StaticResource SectionTitle}" />
                         <TextBlock Style="{StaticResource HelpText}"
                                    Text="Shortcuts can be changed in Settings. By default, global shortcuts work even while the browser has focus: Ctrl+Alt+Shift+L opens or closes Lens, Ctrl+Alt+Shift+C captures, Ctrl+Alt+Shift+Right switches result tabs, Ctrl+Alt+Shift+D opens DOM, Ctrl+Alt+Shift+S opens CSS, and Ctrl+Alt+Shift+I opens Images. When Julco itself has focus, the same actions also work with Ctrl+Shift plus the same final key. Leave any shortcut blank in Settings to disable only that action." />

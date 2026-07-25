@@ -358,6 +358,45 @@
                                        TextWrapping="Wrap" />
                         </Border>
 
+                        <Border x:Name="OnboardingCardBorder"
+                                Background="{StaticResource ListBackground}"
+                                BorderBrush="{StaticResource Accent}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="10"
+                                Margin="0,0,0,14">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock x:Name="OnboardingTitleTextBlock"
+                                               Text="Next step"
+                                               DockPanel.Dock="Left"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock x:Name="OnboardingProgressTextBlock"
+                                               Text="0/8"
+                                               DockPanel.Dock="Right"
+                                               Foreground="{StaticResource MutedText}"
+                                               FontSize="11"
+                                               HorizontalAlignment="Right" />
+                                </DockPanel>
+                                <TextBlock x:Name="OnboardingBodyTextBlock"
+                                           Text="Julco will suggest the next useful action here."
+                                           Foreground="{StaticResource MutedText}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="0,6,0,8" />
+                                <UniformGrid Columns="2">
+                                    <Button x:Name="OnboardingPrimaryButton"
+                                            Content="Start"
+                                            Click="OnboardingPrimaryButton_Click"
+                                            Margin="0,0,4,0" />
+                                    <Button x:Name="OnboardingSecondaryButton"
+                                            Content="Hide"
+                                            Click="OnboardingSecondaryButton_Click"
+                                            Margin="4,0,0,0" />
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Text="Tab"
                                    FontSize="13"
                                    Foreground="{StaticResource MutedText}" />

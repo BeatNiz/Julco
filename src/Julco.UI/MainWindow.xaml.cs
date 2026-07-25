@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private readonly EvidencePackageService _evidencePackageService = new();
     private readonly DispatcherTimer _autoLensTimer;
     private CaptureLibraryIndex _captureLibraryIndex = CaptureLibraryIndex.Empty;
+    private OnboardingCard? _currentOnboardingCard;
     private SelectorInspectionResult? _currentInspection;
     private LensWindow? _lensWindow;
     private readonly LensInspectionCoordinator _lensCoordinator = new();
@@ -186,6 +187,10 @@ public partial class MainWindow : Window
 
     private void HealthButton_Click(object sender, RoutedEventArgs e) => ToggleHealthPanel();
 
+    private async void OnboardingPrimaryButton_Click(object sender, RoutedEventArgs e) => await RunOnboardingPrimaryActionAsync();
+
+    private async void OnboardingSecondaryButton_Click(object sender, RoutedEventArgs e) => await RunOnboardingSecondaryActionAsync();
+
     private void CloseHealthPanelButton_Click(object sender, RoutedEventArgs e)
     {
         HealthPanel.Visibility = Visibility.Collapsed;
@@ -316,6 +321,7 @@ public partial class MainWindow : Window
     {
         await LoadSettingsAsync();
         LoadCaptures();
+        RefreshOnboarding();
         var screens = Forms.Screen.AllScreens;
         if (screens.Length <= 1)
         {
@@ -349,6 +355,7 @@ public partial class MainWindow : Window
 
             await Task.Delay(1200);
             _activeBrowser = browserKind;
+            MarkOnboardingStep(OnboardingStepIds.OpenBrowser);
             PortLabelTextBlock.Text = browserKind == BrowserKind.Firefox ? "BiDi" : "CDP";
             await RefreshTargetsAsync();
             SetStatus($"{browserKind} opened on port {port}.");
@@ -377,6 +384,7 @@ public partial class MainWindow : Window
             if (targets.Count > 0)
             {
                 TargetsComboBox.SelectedIndex = 0;
+                MarkOnboardingStep(OnboardingStepIds.LoadTabs);
                 SetStatus($"{targets.Count} tab(s) detected.");
             }
             else
@@ -411,6 +419,7 @@ public partial class MainWindow : Window
             SetBusy(true, $"Inspecting {selector}...");
             var result = await InspectSelectorAsync(target, selector, CancellationToken.None);
             ShowInspection(target, result);
+            MarkOnboardingStep(OnboardingStepIds.Inspect);
             AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  {selector}");
             SetStatus("Inspection completed.");
         }
@@ -449,6 +458,7 @@ public partial class MainWindow : Window
             _settings.Ui.EnableLensZoomPreview,
             _settings.Ui.EnableLensCaptureOnChange);
         _lensWindow.Show();
+        MarkOnboardingStep(OnboardingStepIds.OpenLens);
         PlaceLensNearMainWindow(_lensWindow);
         LensButtonTextBlock.Text = "Close";
         SetStatus("Lens active. Move or resize it; Julco will inspect the center automatically. Right-click the lens to close it.");
@@ -783,6 +793,7 @@ public partial class MainWindow : Window
 
             LoadCaptures();
             SelectCapture(captureDirectory);
+            MarkOnboardingStep(OnboardingStepIds.CaptureEvidence);
             SetStatus($"Evidence package saved: {captureDirectory}");
         }
         catch (Exception exception)
@@ -1782,6 +1793,7 @@ public partial class MainWindow : Window
             _lensWindow?.SetSmartDefaults(
                 _settings.Ui.EnableLensZoomPreview,
                 _settings.Ui.EnableLensCaptureOnChange);
+            RefreshOnboarding();
         }
         finally
         {
@@ -2841,6 +2853,8 @@ public partial class MainWindow : Window
         ExportJsonButton.IsEnabled = !isBusy;
         ShowImagesButton.IsEnabled = !isBusy;
         ShowIssuesButton.IsEnabled = !isBusy;
+        OnboardingPrimaryButton.IsEnabled = !isBusy;
+        OnboardingSecondaryButton.IsEnabled = !isBusy;
 
         if (message is not null)
         {
@@ -2852,6 +2866,135 @@ public partial class MainWindow : Window
     {
         StatusTextBlock.Text = message;
         UpdateHealthPanel();
+        RefreshOnboarding();
+    }
+
+    private void RefreshOnboarding()
+    {
+        if (OnboardingCardBorder is null)
+        {
+            return;
+        }
+
+        if (!_settings.Ui.ShowContextualOnboarding)
+        {
+            OnboardingCardBorder.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var card = OnboardingAdvisor.Build(new OnboardingContext(
+            UsageProfileComboBox?.SelectedItem is not null,
+            _activeBrowser is not null,
+            TargetsComboBox?.Items.Count ?? 0,
+            TargetsComboBox?.SelectedItem is not null,
+            _currentInspection is not null,
+            _lensWindow is not null,
+            _captureHistory.Captures.Count,
+            GetSelectedCapture() is not null,
+            _settings.Privacy.RedactOnExport,
+            _settings.Ui.CompletedOnboardingSteps));
+        _currentOnboardingCard = card;
+        OnboardingTitleTextBlock.Text = card.Title;
+        OnboardingBodyTextBlock.Text = card.Body;
+        OnboardingProgressTextBlock.Text = card.ProgressText;
+        OnboardingPrimaryButton.Content = card.PrimaryAction;
+        OnboardingSecondaryButton.Content = card.SecondaryAction;
+        OnboardingCardBorder.Visibility = Visibility.Visible;
+    }
+
+    private async Task RunOnboardingPrimaryActionAsync()
+    {
+        if (_currentOnboardingCard is null)
+        {
+            return;
+        }
+
+        switch (_currentOnboardingCard.StepId)
+        {
+            case OnboardingStepIds.ChooseProfile:
+                MarkOnboardingStep(OnboardingStepIds.ChooseProfile);
+                SetStatus("Profile confirmed. Julco will prioritize information for the selected workflow.");
+                break;
+            case OnboardingStepIds.OpenBrowser:
+                await LaunchBrowserAsync(BrowserKind.Chrome);
+                break;
+            case OnboardingStepIds.LoadTabs:
+                await RefreshTargetsAsync();
+                break;
+            case OnboardingStepIds.Inspect:
+                await InspectSelectedTargetAsync();
+                break;
+            case OnboardingStepIds.OpenLens:
+                ToggleLens();
+                break;
+            case OnboardingStepIds.CaptureEvidence:
+                await CaptureLensAsync();
+                break;
+            case OnboardingStepIds.ReviewLibrary:
+                CaptureHistoryTabControl.SelectedIndex = 0;
+                MarkOnboardingStep(OnboardingStepIds.ReviewLibrary);
+                SetStatus("Capture library selected. Use Gallery, Table, Groups, and Timeline to organize evidence.");
+                break;
+            case OnboardingStepIds.Privacy:
+                ShowPrivacyPreview();
+                MarkOnboardingStep(OnboardingStepIds.Privacy);
+                break;
+            default:
+                OpenHelp();
+                break;
+        }
+    }
+
+    private async Task RunOnboardingSecondaryActionAsync()
+    {
+        if (_currentOnboardingCard is null)
+        {
+            return;
+        }
+
+        if (_currentOnboardingCard.SecondaryAction.Equals("Help", StringComparison.OrdinalIgnoreCase))
+        {
+            OpenHelp();
+            return;
+        }
+
+        if (_currentOnboardingCard.SecondaryAction.Equals("Skip", StringComparison.OrdinalIgnoreCase)
+            || _currentOnboardingCard.SecondaryAction.Equals("Done", StringComparison.OrdinalIgnoreCase))
+        {
+            MarkOnboardingStep(_currentOnboardingCard.StepId);
+            return;
+        }
+
+        _settings = _settings with
+        {
+            Ui = _settings.Ui with
+            {
+                ShowContextualOnboarding = false
+            }
+        };
+        await SaveSettingsAsync();
+        RefreshOnboarding();
+        SetStatus("Contextual onboarding hidden. You can enable it again in Settings.");
+    }
+
+    private void MarkOnboardingStep(string stepId)
+    {
+        var updated = OnboardingAdvisor.MarkCompleted(_settings.Ui.CompletedOnboardingSteps, stepId);
+        if (string.Equals(updated, _settings.Ui.CompletedOnboardingSteps, StringComparison.Ordinal))
+        {
+            RefreshOnboarding();
+            return;
+        }
+
+        _settings = _settings with
+        {
+            Ui = _settings.Ui with
+            {
+                CompletedOnboardingSteps = updated
+            }
+        };
+        _ = SaveSettingsAsync();
+        RefreshOnboarding();
     }
 
     private void ToggleHealthPanel()

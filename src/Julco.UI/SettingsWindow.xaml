@@ -94,6 +94,8 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="150" />
@@ -107,6 +109,23 @@
                                       Grid.Column="1"
                                       Content="Keep result windows on top"
                                       Margin="0,14,0,0" />
+                            <TextBlock Grid.Row="2"
+                                       Text="Onboarding"
+                                       Foreground="{StaticResource MutedText}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,14,0,0" />
+                            <CheckBox x:Name="ShowContextualOnboardingCheckBox"
+                                      Grid.Row="2"
+                                      Grid.Column="1"
+                                      Content="Show contextual next-step tips"
+                                      ToolTip="Shows a compact guide in the main panel that suggests the next useful action while you learn Julco."
+                                      Margin="0,14,0,0" />
+                            <CheckBox x:Name="ResetOnboardingCheckBox"
+                                      Grid.Row="3"
+                                      Grid.Column="1"
+                                      Content="Reset onboarding progress after saving"
+                                      ToolTip="Use this to show the first-run tips again."
+                                      Margin="0,8,0,0" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

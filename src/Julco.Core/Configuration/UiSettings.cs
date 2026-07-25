@@ -8,7 +8,9 @@ public sealed record UiSettings(
     bool EnableLensSnapToElement,
     bool EnableLensZoomPreview,
     double LensZoomFactor,
-    bool EnableLensCaptureOnChange)
+    bool EnableLensCaptureOnChange,
+    bool ShowContextualOnboarding,
+    string CompletedOnboardingSteps)
 {
     public static UiSettings Default { get; } = new(
         CdpPort: 9222,
@@ -18,15 +20,22 @@ public sealed record UiSettings(
         EnableLensSnapToElement: false,
         EnableLensZoomPreview: false,
         LensZoomFactor: 1.45,
-        EnableLensCaptureOnChange: false);
+        EnableLensCaptureOnChange: false,
+        ShowContextualOnboarding: true,
+        CompletedOnboardingSteps: string.Empty);
 
     public UiSettings Normalized()
     {
+        var completedOnboardingSteps = CompletedOnboardingSteps;
         return this with
         {
             CdpPort = CdpPort <= 0 || CdpPort > 65535 ? Default.CdpPort : CdpPort,
             LensInspectionDelayMs = LensInspectionDelayMs < 150 ? Default.LensInspectionDelayMs : LensInspectionDelayMs,
-            LensZoomFactor = LensZoomFactor < 1.1 || LensZoomFactor > 3 ? Default.LensZoomFactor : LensZoomFactor
+            LensZoomFactor = LensZoomFactor < 1.1 || LensZoomFactor > 3 ? Default.LensZoomFactor : LensZoomFactor,
+            ShowContextualOnboarding = completedOnboardingSteps is null
+                ? Default.ShowContextualOnboarding
+                : ShowContextualOnboarding,
+            CompletedOnboardingSteps = completedOnboardingSteps ?? string.Empty
         };
     }
 }

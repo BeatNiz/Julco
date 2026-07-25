@@ -28,6 +28,8 @@ public partial class SettingsWindow : Window
         ThemeComboBox.ItemsSource = Enum.GetValues<ThemeMode>();
         ThemeComboBox.SelectedItem = settings.Theme;
         TopmostCheckBox.IsChecked = settings.Ui.KeepResultWindowsTopmost;
+        ShowContextualOnboardingCheckBox.IsChecked = settings.Ui.ShowContextualOnboarding;
+        ResetOnboardingCheckBox.IsChecked = false;
         LensSnapToElementCheckBox.IsChecked = settings.Ui.EnableLensSnapToElement;
         LensZoomPreviewCheckBox.IsChecked = settings.Ui.EnableLensZoomPreview;
         LensZoomFactorTextBox.Text = settings.Ui.LensZoomFactor.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
@@ -203,7 +205,11 @@ public partial class SettingsWindow : Window
                 EnableLensSnapToElement = LensSnapToElementCheckBox.IsChecked == true,
                 EnableLensZoomPreview = LensZoomPreviewCheckBox.IsChecked == true,
                 LensZoomFactor = lensZoomFactor,
-                EnableLensCaptureOnChange = LensCaptureOnChangeCheckBox.IsChecked == true
+                EnableLensCaptureOnChange = LensCaptureOnChangeCheckBox.IsChecked == true,
+                ShowContextualOnboarding = ShowContextualOnboardingCheckBox.IsChecked == true,
+                CompletedOnboardingSteps = ResetOnboardingCheckBox.IsChecked == true
+                    ? OnboardingAdvisor.Reset()
+                    : Settings.Ui.CompletedOnboardingSteps
             }
         };
 
