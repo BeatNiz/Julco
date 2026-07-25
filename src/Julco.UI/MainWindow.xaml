@@ -453,6 +453,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -501,6 +502,45 @@
                                           MinHeight="26"
                                           Margin="0,0,5,5"
                                           SelectionChanged="CaptureFilter_SelectionChanged" />
+                                <ComboBox x:Name="CaptureGroupFilterComboBox"
+                                          Width="118"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          SelectionChanged="CaptureFilter_SelectionChanged" />
+                                <ComboBox x:Name="CaptureTagFilterComboBox"
+                                          Width="98"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          SelectionChanged="CaptureFilter_SelectionChanged" />
+                                <CheckBox x:Name="CaptureFavoritesOnlyCheckBox"
+                                          Content="★"
+                                          ToolTip="Show favorites only."
+                                          VerticalAlignment="Center"
+                                          Margin="2,0,5,5"
+                                          Checked="CaptureFilter_CheckChanged"
+                                          Unchecked="CaptureFilter_CheckChanged" />
+                            </WrapPanel>
+
+                            <WrapPanel Grid.Row="2"
+                                       Grid.Column="0"
+                                       Grid.ColumnSpan="3"
+                                       Margin="0,2,0,0">
+                                <ComboBox x:Name="SavedCaptureFilterComboBox"
+                                          Width="128"
+                                          MinHeight="26"
+                                          Margin="0,0,5,5"
+                                          ToolTip="Saved library filters."
+                                          SelectionChanged="SavedCaptureFilterComboBox_SelectionChanged" />
+                                <Button x:Name="SaveCaptureFilterButton"
+                                        Content="Save filter"
+                                        ToolTip="Save the current library filter set."
+                                        Click="SaveCaptureFilterButton_Click"
+                                        Margin="0,0,5,5" />
+                                <Button x:Name="DeleteCaptureFilterButton"
+                                        Content="Delete filter"
+                                        ToolTip="Delete the selected saved filter."
+                                        Click="DeleteCaptureFilterButton_Click"
+                                        Margin="0,0,5,5" />
                             </WrapPanel>
                         </Grid>
 
@@ -510,7 +550,7 @@
                                     Background="{StaticResource ListBackground}"
                                     Foreground="{StaticResource PrimaryText}"
                                     BorderBrush="{StaticResource BorderColor}">
-                            <TabItem Header="Cards">
+                            <TabItem Header="Gallery">
                                 <ListBox x:Name="CaptureFilesListBox"
                                          Background="{StaticResource ListBackground}"
                                          Foreground="{StaticResource PrimaryText}"
@@ -518,38 +558,42 @@
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                          SelectionChanged="CaptureFilesListBox_SelectionChanged"
                                          MouseDoubleClick="CaptureHistory_MouseDoubleClick">
+                                    <ListBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ListBox.ItemsPanel>
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Margin="0,2,0,4" MinHeight="68">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="82" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-
-                                                <Border Width="72"
-                                                        Height="54"
+                                            <Border Width="196"
+                                                    Margin="0,0,8,8"
+                                                    Padding="8"
+                                                    Background="{StaticResource InputBackground}"
+                                                    BorderBrush="{StaticResource BorderColor}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6">
+                                                <StackPanel>
+                                                    <Border Height="104"
                                                         Background="{StaticResource InputBackground}"
                                                         BorderBrush="{StaticResource BorderColor}"
                                                         BorderThickness="1"
                                                         CornerRadius="4"
-                                                        ClipToBounds="True"
-                                                        HorizontalAlignment="Left">
-                                                    <Grid>
-                                                        <Image Source="{Binding ThumbnailPath}"
-                                                               Stretch="UniformToFill" />
-                                                        <TextBlock Text="{Binding ThumbnailFallback}"
-                                                                   Foreground="{StaticResource MutedText}"
-                                                                   FontSize="10"
-                                                                   TextAlignment="Center"
-                                                                   HorizontalAlignment="Center"
-                                                                   VerticalAlignment="Center"
-                                                                   TextWrapping="Wrap" />
-                                                    </Grid>
-                                                </Border>
-
-                                                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                        ClipToBounds="True">
+                                                        <Grid>
+                                                            <Image Source="{Binding ThumbnailPath}"
+                                                                   Stretch="UniformToFill" />
+                                                            <TextBlock Text="{Binding ThumbnailFallback}"
+                                                                       Foreground="{StaticResource MutedText}"
+                                                                       FontSize="10"
+                                                                       TextAlignment="Center"
+                                                                       HorizontalAlignment="Center"
+                                                                       VerticalAlignment="Center"
+                                                                       TextWrapping="Wrap" />
+                                                        </Grid>
+                                                    </Border>
                                                     <TextBlock Text="{Binding HistoryTitle}"
                                                                FontWeight="SemiBold"
+                                                               Margin="0,6,0,0"
                                                                TextTrimming="CharacterEllipsis"
                                                                ToolTip="{Binding PageTitle}" />
                                                     <TextBlock Text="{Binding HistorySubtitle}"
@@ -557,13 +601,17 @@
                                                                FontSize="11"
                                                                TextTrimming="CharacterEllipsis"
                                                                ToolTip="{Binding Selector}" />
-                                                    <TextBlock Text="{Binding HistoryMeta}"
+                                                    <TextBlock Text="{Binding GalleryMeta}"
                                                                Foreground="{StaticResource MutedText}"
                                                                FontSize="11"
                                                                TextTrimming="CharacterEllipsis"
                                                                ToolTip="{Binding Url}" />
+                                                    <TextBlock Text="{Binding LibraryTagsDisplay}"
+                                                               Foreground="{StaticResource MutedText}"
+                                                               FontSize="10"
+                                                               TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
-                                            </Grid>
+                                            </Border>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
@@ -606,9 +654,54 @@
                                         <DataGridTextColumn Header="Selector" Binding="{Binding Selector}" Width="180" />
                                         <DataGridTextColumn Header="Status" Binding="{Binding NoteStatus}" Width="92" />
                                         <DataGridTextColumn Header="Severity" Binding="{Binding NoteSeverity}" Width="82" />
+                                        <DataGridTextColumn Header="Favorite" Binding="{Binding FavoriteGlyph}" Width="66" />
+                                        <DataGridTextColumn Header="Project" Binding="{Binding ProjectDisplay}" Width="120" />
+                                        <DataGridTextColumn Header="Tags" Binding="{Binding LibraryTagsDisplay}" Width="140" />
+                                        <DataGridTextColumn Header="Session" Binding="{Binding SessionDisplay}" Width="110" />
                                         <DataGridTextColumn Header="URL" Binding="{Binding Url}" Width="260" />
                                     </DataGrid.Columns>
                                 </DataGrid>
+                            </TabItem>
+                            <TabItem Header="Groups">
+                                <DataGrid x:Name="CaptureGroupsDataGrid"
+                                          AutoGenerateColumns="False"
+                                          CanUserAddRows="False"
+                                          CanUserDeleteRows="False"
+                                          IsReadOnly="True"
+                                          RowHeaderWidth="0"
+                                          Background="{StaticResource ListBackground}"
+                                          Foreground="{StaticResource PrimaryText}"
+                                          BorderBrush="{StaticResource BorderColor}"
+                                          SelectionMode="Single"
+                                          SelectionChanged="CaptureGroupsDataGrid_SelectionChanged">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Group" Binding="{Binding Name}" Width="*" />
+                                        <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="150" />
+                                        <DataGridTextColumn Header="Last" Binding="{Binding LastCaptureText}" Width="88" />
+                                        <DataGridTextColumn Header="Tags" Binding="{Binding TagsText}" Width="180" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </TabItem>
+                            <TabItem Header="Timeline">
+                                <ListBox x:Name="CaptureTimelineListBox"
+                                         Background="{StaticResource ListBackground}"
+                                         Foreground="{StaticResource PrimaryText}"
+                                         BorderBrush="{StaticResource BorderColor}"
+                                         SelectionChanged="CaptureTimelineListBox_SelectionChanged">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="4">
+                                                <TextBlock Text="{Binding DisplayTitle}"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding DisplayMeta}"
+                                                           Foreground="{StaticResource MutedText}"
+                                                           FontSize="11"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
                             </TabItem>
                         </TabControl>
 
@@ -666,6 +759,16 @@
                                     Content="Notes"
                                     ToolTip="Edit notes for the selected evidence package."
                                     Click="EditEvidenceNotesButton_Click"
+                                    Margin="4,4,0,0" />
+                            <Button x:Name="FavoriteCaptureButton"
+                                    Content="Favorite"
+                                    ToolTip="Toggle favorite for the selected capture."
+                                    Click="FavoriteCaptureButton_Click"
+                                    Margin="0,4,4,0" />
+                            <Button x:Name="QuickTagsButton"
+                                    Content="Tags"
+                                    ToolTip="Edit library tags, project, and session for the selected capture."
+                                    Click="QuickTagsButton_Click"
                                     Margin="4,4,0,0" />
                             <Button x:Name="CompareCapturesButton"
                                     Content="Compare"

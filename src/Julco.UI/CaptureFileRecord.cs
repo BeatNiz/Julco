@@ -17,6 +17,11 @@ public sealed record CaptureFileRecord(
     string NoteTags,
     string NoteText,
     string ScreenshotPath,
+    bool IsFavorite,
+    string LibraryTags,
+    string Project,
+    string SessionId,
+    string Domain,
     string SearchText)
 {
     public string ThumbnailPath => ResolveThumbnailPath(ScreenshotPath);
@@ -24,6 +29,14 @@ public sealed record CaptureFileRecord(
     public string ThumbnailFallback => File.Exists(ScreenshotPath) ? string.Empty : "No image";
 
     public string CreatedLocalText => CreatedAt.LocalDateTime.ToString("MM-dd HH:mm");
+
+    public string FavoriteGlyph => IsFavorite ? "★" : "☆";
+
+    public string LibraryTagsDisplay => string.IsNullOrWhiteSpace(LibraryTags) ? "-" : LibraryTags;
+
+    public string ProjectDisplay => string.IsNullOrWhiteSpace(Project) ? Domain : Project;
+
+    public string SessionDisplay => string.IsNullOrWhiteSpace(SessionId) ? CreatedAt.LocalDateTime.ToString("yyyy-MM-dd") : SessionId;
 
     public string HistoryTitle => string.IsNullOrWhiteSpace(PageTitle)
         ? Path.GetFileName(DirectoryPath)
@@ -44,8 +57,11 @@ public sealed record CaptureFileRecord(
         }
     }
 
+    public string GalleryMeta => $"{FavoriteGlyph} {CreatedLocalText}  {Browser}  {ProjectDisplay}";
+
     public static CaptureFileRecord FromDirectory(string directoryPath)
     {
+        var library = CaptureLibraryStore.LoadItem(directoryPath);
         var evidencePath = Path.Combine(directoryPath, "evidence.json");
         if (File.Exists(evidencePath))
         {
@@ -73,6 +89,11 @@ public sealed record CaptureFileRecord(
                         notes.Tags,
                         notes.Observation,
                         ResolveCaptureFile(directoryPath, evidence.Files.Screenshot),
+                        library.IsFavorite,
+                        library.Tags,
+                        library.Project,
+                        ResolveSessionId(library, evidence.CreatedAt),
+                        ResolveDomain(evidence.Page.Url),
                         BuildCaptureSearchText(
                             directoryPath,
                             displayName,
@@ -81,7 +102,8 @@ public sealed record CaptureFileRecord(
                             evidence.Page.Title,
                             evidence.Element.TagName,
                             evidence.Element.Selector,
-                            notes));
+                            notes,
+                            library));
                 }
             }
             catch (JsonException)
@@ -116,6 +138,11 @@ public sealed record CaptureFileRecord(
                         notes.Tags,
                         notes.Observation,
                         ResolveCaptureFile(directoryPath, manifest.Screenshot),
+                        library.IsFavorite,
+                        library.Tags,
+                        library.Project,
+                        ResolveSessionId(library, manifest.CreatedAt),
+                        ResolveDomain(manifest.Url),
                         BuildCaptureSearchText(
                             directoryPath,
                             displayName,
@@ -124,7 +151,8 @@ public sealed record CaptureFileRecord(
                             manifest.PageTitle,
                             manifest.TagName,
                             manifest.Selector,
-                            notes));
+                            notes,
+                            library));
                 }
             }
             catch (JsonException)
@@ -148,6 +176,11 @@ public sealed record CaptureFileRecord(
             fallbackNotes.Tags,
             fallbackNotes.Observation,
             ResolveCaptureFile(directoryPath, "screenshot.png"),
+            library.IsFavorite,
+            library.Tags,
+            library.Project,
+            ResolveSessionId(library, Directory.GetCreationTime(directoryPath)),
+            string.Empty,
             BuildCaptureSearchText(
                 directoryPath,
                 fallbackName,
@@ -156,7 +189,8 @@ public sealed record CaptureFileRecord(
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                fallbackNotes));
+                fallbackNotes,
+                library));
     }
 
     private static string BuildCaptureSearchText(
@@ -167,7 +201,8 @@ public sealed record CaptureFileRecord(
         string pageTitle,
         string tagName,
         string selector,
-        CaptureNotes notes)
+        CaptureNotes notes,
+        CaptureLibraryItemMetadata library)
     {
         return string.Join(
             " ",
@@ -182,7 +217,24 @@ public sealed record CaptureFileRecord(
             notes.Status,
             notes.Tags,
             notes.Observation,
+            library.Tags,
+            library.Project,
+            library.SessionId,
             Path.GetFileName(directoryPath));
+    }
+
+    private static string ResolveDomain(string? url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            ? uri.Host
+            : string.Empty;
+    }
+
+    private static string ResolveSessionId(CaptureLibraryItemMetadata library, DateTimeOffset createdAt)
+    {
+        return string.IsNullOrWhiteSpace(library.SessionId)
+            ? createdAt.LocalDateTime.ToString("yyyy-MM-dd")
+            : library.SessionId;
     }
 
     private static string ResolveCaptureFile(string directoryPath, string? relativePath)

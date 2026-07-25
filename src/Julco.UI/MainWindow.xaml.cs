@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private readonly IssueTrackerWorkflowService _issueTrackerWorkflowService = new();
     private readonly EvidencePackageService _evidencePackageService = new();
     private readonly DispatcherTimer _autoLensTimer;
+    private CaptureLibraryIndex _captureLibraryIndex = CaptureLibraryIndex.Empty;
     private SelectorInspectionResult? _currentInspection;
     private LensWindow? _lensWindow;
     private readonly LensInspectionCoordinator _lensCoordinator = new();
@@ -171,6 +172,10 @@ public partial class MainWindow : Window
 
     private void EditEvidenceNotesButton_Click(object sender, RoutedEventArgs e) => EditSelectedEvidenceNotes();
 
+    private void FavoriteCaptureButton_Click(object sender, RoutedEventArgs e) => ToggleSelectedCaptureFavorite();
+
+    private void QuickTagsButton_Click(object sender, RoutedEventArgs e) => EditSelectedCaptureLibraryMetadata();
+
     private void CompareCapturesButton_Click(object sender, RoutedEventArgs e) => CompareCaptures();
 
     private void ExportReportButton_Click(object sender, RoutedEventArgs e) => ExportSelectedCaptureReport();
@@ -229,7 +234,31 @@ public partial class MainWindow : Window
 
     private void CaptureFilter_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyCaptureFilters();
 
+    private void CaptureFilter_CheckChanged(object sender, RoutedEventArgs e) => ApplyCaptureFilters();
+
     private void ClearCaptureFiltersButton_Click(object sender, RoutedEventArgs e) => ClearCaptureFilters();
+
+    private void SavedCaptureFilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplySelectedSavedCaptureFilter();
+
+    private void SaveCaptureFilterButton_Click(object sender, RoutedEventArgs e) => SaveCurrentCaptureFilter();
+
+    private void DeleteCaptureFilterButton_Click(object sender, RoutedEventArgs e) => DeleteSelectedCaptureFilter();
+
+    private void CaptureGroupsDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CaptureGroupsDataGrid.SelectedItem is CaptureLibraryGroup group)
+        {
+            CaptureGroupFilterComboBox.SelectedItem = group.Name;
+        }
+    }
+
+    private void CaptureTimelineListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CaptureTimelineListBox.SelectedItem is CaptureSessionTimelineItem item)
+        {
+            SelectCapture(item.DirectoryPath);
+        }
+    }
 
     private void CopyHtmlButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1604,6 +1633,8 @@ public partial class MainWindow : Window
         RefreshCapturesButton.Content = compact ? "Load" : "Reload";
         RepairCaptureButton.Content = compact ? "Fix" : "Repair";
         EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
+        FavoriteCaptureButton.Content = compact ? "Fav" : "Favorite";
+        QuickTagsButton.Content = compact ? "Tags" : "Tags";
         CompareCapturesButton.Content = compact ? "Diff" : "Compare";
         ExportReportButton.Content = compact ? "Rpt" : "Report";
         IssueTrackerButton.Content = compact ? "Bug" : "Issue";
@@ -2081,8 +2112,11 @@ public partial class MainWindow : Window
         var selectedDirectory = GetSelectedCapture() is CaptureFileRecord selected
             ? selected.DirectoryPath
             : null;
-        _captureHistory.Load(GetCaptureRootDirectory(), selectedDirectory);
+        var captureRoot = GetCaptureRootDirectory();
+        _captureLibraryIndex = CaptureLibraryStore.LoadIndex(captureRoot);
+        _captureHistory.Load(captureRoot, selectedDirectory);
         RefreshDynamicCaptureFilters();
+        RefreshSavedCaptureFilters();
         BindCaptureHistory();
     }
 
@@ -2094,7 +2128,10 @@ public partial class MainWindow : Window
             || CaptureBrowserFilterComboBox is null
             || CaptureStatusFilterComboBox is null
             || CaptureSeverityFilterComboBox is null
-            || CaptureDateFilterComboBox is null)
+            || CaptureDateFilterComboBox is null
+            || CaptureGroupFilterComboBox is null
+            || CaptureTagFilterComboBox is null
+            || CaptureFavoritesOnlyCheckBox is null)
         {
             return;
         }
@@ -2105,7 +2142,10 @@ public partial class MainWindow : Window
                 GetFilterValue(CaptureBrowserFilterComboBox),
                 GetFilterValue(CaptureStatusFilterComboBox),
                 GetFilterValue(CaptureSeverityFilterComboBox),
-                GetFilterValue(CaptureDateFilterComboBox)),
+                GetFilterValue(CaptureDateFilterComboBox),
+                GetFilterValue(CaptureGroupFilterComboBox),
+                GetFilterValue(CaptureTagFilterComboBox),
+                CaptureFavoritesOnlyCheckBox.IsChecked == true),
             preferredSelection);
         BindCaptureHistory();
     }
@@ -2116,6 +2156,10 @@ public partial class MainWindow : Window
         CaptureFilesListBox.ItemsSource = _captureHistory.FilteredCaptures;
         CaptureFilesDataGrid.ItemsSource = null;
         CaptureFilesDataGrid.ItemsSource = _captureHistory.FilteredCaptures;
+        CaptureGroupsDataGrid.ItemsSource = null;
+        CaptureGroupsDataGrid.ItemsSource = _captureHistory.Groups;
+        CaptureTimelineListBox.ItemsSource = null;
+        CaptureTimelineListBox.ItemsSource = _captureHistory.SessionTimeline;
 
         if (_captureHistory.SelectedCapture is not null)
         {
@@ -2138,6 +2182,8 @@ public partial class MainWindow : Window
         _captureHistory.Select(capture);
         CaptureFilesListBox.SelectedItem = capture;
         CaptureFilesDataGrid.SelectedItem = capture;
+        CaptureTimelineListBox.ItemsSource = null;
+        CaptureTimelineListBox.ItemsSource = _captureHistory.SessionTimeline;
         if (capture is not null)
         {
             CaptureFilesDataGrid.ScrollIntoView(capture);
@@ -2164,6 +2210,8 @@ public partial class MainWindow : Window
             CaptureFilesDataGrid.SelectedItem = capture;
         }
 
+        CaptureTimelineListBox.ItemsSource = null;
+        CaptureTimelineListBox.ItemsSource = _captureHistory.SessionTimeline;
         UpdateCaptureNotesPreview();
     }
 
@@ -2179,22 +2227,59 @@ public partial class MainWindow : Window
         CaptureStatusFilterComboBox.ItemsSource = new[] { "All statuses", "Open", "Needs review", "Confirmed", "Fixed", "Won't fix" };
         CaptureSeverityFilterComboBox.ItemsSource = new[] { "All severities", "Low", "Medium", "High", "Critical" };
         CaptureDateFilterComboBox.ItemsSource = new[] { "Any date", "Today", "Last 7 days", "Last 30 days" };
+        CaptureGroupFilterComboBox.ItemsSource = new[] { "All groups" };
+        CaptureTagFilterComboBox.ItemsSource = new[] { "All tags" };
+        SavedCaptureFilterComboBox.ItemsSource = new[] { "Saved filters" };
 
         CaptureBrowserFilterComboBox.SelectedIndex = 0;
         CaptureStatusFilterComboBox.SelectedIndex = 0;
         CaptureSeverityFilterComboBox.SelectedIndex = 0;
         CaptureDateFilterComboBox.SelectedIndex = 0;
+        CaptureGroupFilterComboBox.SelectedIndex = 0;
+        CaptureTagFilterComboBox.SelectedIndex = 0;
+        SavedCaptureFilterComboBox.SelectedIndex = 0;
     }
 
     private void RefreshDynamicCaptureFilters()
     {
         var selectedBrowser = CaptureBrowserFilterComboBox.SelectedItem as string;
         var browsers = _captureHistory.GetBrowserFilterValues().ToArray();
+        var selectedGroup = CaptureGroupFilterComboBox.SelectedItem as string;
+        var groups = _captureHistory.GetGroupFilterValues().ToArray();
+        var selectedTag = CaptureTagFilterComboBox.SelectedItem as string;
+        var tags = _captureHistory.GetTagFilterValues().ToArray();
 
         CaptureBrowserFilterComboBox.ItemsSource = browsers;
         CaptureBrowserFilterComboBox.SelectedItem = browsers.Contains(selectedBrowser, StringComparer.OrdinalIgnoreCase)
             ? selectedBrowser
             : "All browsers";
+        CaptureGroupFilterComboBox.ItemsSource = groups;
+        CaptureGroupFilterComboBox.SelectedItem = groups.Contains(selectedGroup, StringComparer.OrdinalIgnoreCase)
+            ? selectedGroup
+            : "All groups";
+        CaptureTagFilterComboBox.ItemsSource = tags;
+        CaptureTagFilterComboBox.SelectedItem = tags.Contains(selectedTag, StringComparer.OrdinalIgnoreCase)
+            ? selectedTag
+            : "All tags";
+    }
+
+    private void RefreshSavedCaptureFilters()
+    {
+        if (SavedCaptureFilterComboBox is null)
+        {
+            return;
+        }
+
+        var selected = SavedCaptureFilterComboBox.SelectedItem as string;
+        var names = new[] { "Saved filters" }
+            .Concat(_captureLibraryIndex.SavedFilters
+                .Select(filter => filter.Name)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        SavedCaptureFilterComboBox.ItemsSource = names;
+        SavedCaptureFilterComboBox.SelectedItem = names.Contains(selected, StringComparer.OrdinalIgnoreCase)
+            ? selected
+            : "Saved filters";
     }
 
     private void ClearCaptureFilters()
@@ -2204,6 +2289,9 @@ public partial class MainWindow : Window
         CaptureStatusFilterComboBox.SelectedIndex = 0;
         CaptureSeverityFilterComboBox.SelectedIndex = 0;
         CaptureDateFilterComboBox.SelectedIndex = 0;
+        CaptureGroupFilterComboBox.SelectedIndex = 0;
+        CaptureTagFilterComboBox.SelectedIndex = 0;
+        CaptureFavoritesOnlyCheckBox.IsChecked = false;
         ApplyCaptureFilters();
     }
 
@@ -2216,9 +2304,167 @@ public partial class MainWindow : Window
     {
         var value = comboBox.SelectedItem as string ?? string.Empty;
         return value.StartsWith("All ", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("Saved filters", StringComparison.OrdinalIgnoreCase)
             || value.Equals("Any date", StringComparison.OrdinalIgnoreCase)
             ? string.Empty
             : value;
+    }
+
+    private CaptureHistoryFilter BuildCurrentCaptureHistoryFilter()
+    {
+        return new CaptureHistoryFilter(
+            CaptureSearchTextBox?.Text?.Trim() ?? string.Empty,
+            GetFilterValue(CaptureBrowserFilterComboBox),
+            GetFilterValue(CaptureStatusFilterComboBox),
+            GetFilterValue(CaptureSeverityFilterComboBox),
+            GetFilterValue(CaptureDateFilterComboBox),
+            GetFilterValue(CaptureGroupFilterComboBox),
+            GetFilterValue(CaptureTagFilterComboBox),
+            CaptureFavoritesOnlyCheckBox.IsChecked == true);
+    }
+
+    private void ApplySelectedSavedCaptureFilter()
+    {
+        var name = SavedCaptureFilterComboBox.SelectedItem as string;
+        if (string.IsNullOrWhiteSpace(name) || name.Equals("Saved filters", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var filter = _captureLibraryIndex.SavedFilters.FirstOrDefault(item =>
+            item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (filter is null)
+        {
+            return;
+        }
+
+        CaptureSearchTextBox.Text = filter.Query;
+        CaptureBrowserFilterComboBox.SelectedItem = string.IsNullOrWhiteSpace(filter.Browser) ? "All browsers" : filter.Browser;
+        CaptureStatusFilterComboBox.SelectedItem = string.IsNullOrWhiteSpace(filter.Status) ? "All statuses" : filter.Status;
+        CaptureSeverityFilterComboBox.SelectedItem = string.IsNullOrWhiteSpace(filter.Severity) ? "All severities" : filter.Severity;
+        CaptureDateFilterComboBox.SelectedItem = string.IsNullOrWhiteSpace(filter.DateRange) ? "Any date" : filter.DateRange;
+        CaptureGroupFilterComboBox.SelectedItem = string.IsNullOrWhiteSpace(filter.Group) ? "All groups" : filter.Group;
+        CaptureTagFilterComboBox.SelectedItem = string.IsNullOrWhiteSpace(filter.QuickTag) ? "All tags" : filter.QuickTag;
+        CaptureFavoritesOnlyCheckBox.IsChecked = filter.FavoritesOnly;
+        ApplyCaptureFilters();
+    }
+
+    private void SaveCurrentCaptureFilter()
+    {
+        var requestedName = Microsoft.VisualBasic.Interaction.InputBox(
+            "Filter name:",
+            "Save library filter",
+            "Review filter");
+        if (string.IsNullOrWhiteSpace(requestedName))
+        {
+            return;
+        }
+
+        var name = requestedName.Trim();
+        var filter = BuildCurrentCaptureHistoryFilter();
+        var savedFilter = new CaptureSavedFilter(
+            name,
+            filter.Query,
+            filter.Browser,
+            filter.Status,
+            filter.Severity,
+            filter.DateRange,
+            filter.Group,
+            filter.QuickTag,
+            filter.FavoritesOnly);
+        var filters = _captureLibraryIndex.SavedFilters
+            .Where(item => !item.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            .Append(savedFilter)
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        _captureLibraryIndex = new CaptureLibraryIndex(filters);
+        CaptureLibraryStore.SaveIndex(GetCaptureRootDirectory(), _captureLibraryIndex);
+        RefreshSavedCaptureFilters();
+        SavedCaptureFilterComboBox.SelectedItem = name;
+        SetStatus($"Saved capture filter: {name}.");
+    }
+
+    private void DeleteSelectedCaptureFilter()
+    {
+        var name = SavedCaptureFilterComboBox.SelectedItem as string;
+        if (string.IsNullOrWhiteSpace(name) || name.Equals("Saved filters", StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus("Select a saved filter first.");
+            return;
+        }
+
+        _captureLibraryIndex = new CaptureLibraryIndex(
+            _captureLibraryIndex.SavedFilters
+                .Where(item => !item.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                .ToArray());
+        CaptureLibraryStore.SaveIndex(GetCaptureRootDirectory(), _captureLibraryIndex);
+        RefreshSavedCaptureFilters();
+        SetStatus($"Deleted capture filter: {name}.");
+    }
+
+    private void ToggleSelectedCaptureFavorite()
+    {
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture first.");
+            return;
+        }
+
+        var metadata = CaptureLibraryStore.LoadItem(capture.DirectoryPath);
+        CaptureLibraryStore.SaveItem(capture.DirectoryPath, metadata with
+        {
+            IsFavorite = !capture.IsFavorite
+        });
+        LoadCaptures();
+        SelectCapture(capture.DirectoryPath);
+        SetStatus(capture.IsFavorite ? "Capture removed from favorites." : "Capture marked as favorite.");
+    }
+
+    private void EditSelectedCaptureLibraryMetadata()
+    {
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
+        {
+            SetStatus("Select a capture first.");
+            return;
+        }
+
+        var metadata = CaptureLibraryStore.LoadItem(capture.DirectoryPath);
+        var tags = Microsoft.VisualBasic.Interaction.InputBox(
+            "Quick tags separated by commas:",
+            "Capture library tags",
+            metadata.Tags);
+        if (tags is null)
+        {
+            return;
+        }
+
+        var project = Microsoft.VisualBasic.Interaction.InputBox(
+            "Project or domain group:",
+            "Capture project",
+            string.IsNullOrWhiteSpace(metadata.Project) ? capture.Domain : metadata.Project);
+        if (project is null)
+        {
+            return;
+        }
+
+        var session = Microsoft.VisualBasic.Interaction.InputBox(
+            "Session id for timeline grouping:",
+            "Capture session",
+            string.IsNullOrWhiteSpace(metadata.SessionId) ? capture.SessionDisplay : metadata.SessionId);
+        if (session is null)
+        {
+            return;
+        }
+
+        CaptureLibraryStore.SaveItem(capture.DirectoryPath, metadata with
+        {
+            Tags = tags,
+            Project = project,
+            SessionId = session
+        });
+        LoadCaptures();
+        SelectCapture(capture.DirectoryPath);
+        SetStatus("Capture library metadata saved.");
     }
 
     private void UpdateCaptureNotesPreview()
@@ -2581,6 +2827,8 @@ public partial class MainWindow : Window
         RefreshCapturesButton.IsEnabled = !isBusy;
         RepairCaptureButton.IsEnabled = !isBusy;
         EditEvidenceNotesButton.IsEnabled = !isBusy;
+        FavoriteCaptureButton.IsEnabled = !isBusy;
+        QuickTagsButton.IsEnabled = !isBusy;
         CompareCapturesButton.IsEnabled = !isBusy;
         ExportReportButton.IsEnabled = !isBusy;
         IssueTrackerButton.IsEnabled = !isBusy;
