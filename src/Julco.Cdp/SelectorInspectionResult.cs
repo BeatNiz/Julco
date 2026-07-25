@@ -48,6 +48,19 @@ public sealed record WebImageResource(
         : "Unknown";
 }
 
+public sealed record ElementScreenBounds(
+    double X,
+    double Y,
+    double Width,
+    double Height)
+{
+    public bool IsEmpty => Width <= 0 || Height <= 0;
+}
+
+public sealed record LensMatchInfo(
+    string Confidence,
+    string Reason);
+
 public sealed record SelectorInspectionResult(
     string Selector,
     string TagName,
@@ -56,4 +69,6 @@ public sealed record SelectorInspectionResult(
     IReadOnlyDictionary<string, string> ComputedStyle,
     IReadOnlyList<string> MatchedCssRules,
     IReadOnlyList<string> ConsoleMessages,
-    IReadOnlyList<WebImageResource> Images);
+    IReadOnlyList<WebImageResource> Images,
+    ElementScreenBounds? ElementBounds = null,
+    LensMatchInfo? LensMatch = null);

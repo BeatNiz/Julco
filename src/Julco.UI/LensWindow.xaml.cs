@@ -1,19 +1,26 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using Julco.Capture;
 using Julco.Core.Geometry;
 using Forms = System.Windows.Forms;
+using MediaBrushes = System.Windows.Media.Brushes;
+using MediaColor = System.Windows.Media.Color;
+using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace Julco.UI;
 
 public partial class LensWindow : Window
 {
-    private const double HeaderMinimumWidth = 240;
+    private const double HeaderMinimumWidth = 320;
     private const double MinimumCaptureWidth = 34;
     private const double MinimumCaptureHeight = 34;
     private bool _isPinned;
     private bool _isFrozen;
+    private bool _isZoomEnabled;
+    private bool _isCaptureOnChangeEnabled;
     private bool _isResizing;
     private System.Windows.Point _resizeStartPoint;
     private double _resizeStartWidth;
@@ -38,12 +45,22 @@ public partial class LensWindow : Window
 
     public event EventHandler<bool>? LockChanged;
 
+    public event EventHandler<LensFrameState>? SnapRequested;
+
+    public event EventHandler<bool>? ZoomChanged;
+
+    public event EventHandler<bool>? CaptureOnChangeChanged;
+
     public LensFrameState State { get; private set; } = LensFrameState.FromBounds(
         new ScreenRect(160, 140, 420, 260));
 
     public bool IsFrozen => _isFrozen;
 
     public bool IsLocked => _isPinned;
+
+    public bool IsZoomEnabled => _isZoomEnabled;
+
+    public bool IsCaptureOnChangeEnabled => _isCaptureOnChangeEnabled;
 
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -105,6 +122,58 @@ public partial class LensWindow : Window
         TypeTextBlock.Text = $"type: {detectedType}";
     }
 
+    public void SetSmartDefaults(bool zoomEnabled, bool captureOnChangeEnabled)
+    {
+        _isZoomEnabled = zoomEnabled;
+        _isCaptureOnChangeEnabled = captureOnChangeEnabled;
+        UpdateModeButtons();
+        UpdateZoomPreviewVisibility();
+    }
+
+    public void ApplyCaptureBounds(ScreenRect bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return;
+        }
+
+        Left = bounds.X;
+        Top = bounds.Y;
+        CaptureFrame.Width = Math.Max(MinimumCaptureWidth, bounds.Width);
+        CaptureFrame.Height = Math.Max(MinimumCaptureHeight, bounds.Height);
+        UpdateWindowSize();
+        UpdateState();
+    }
+
+    public void SetMiniInspector(string tagName, string selector, string confidence, string issue)
+    {
+        var shortSelector = string.IsNullOrWhiteSpace(selector)
+            ? "-"
+            : selector.Length > 58 ? selector[..58] + "..." : selector;
+        MiniInspectorTitleTextBlock.Text = $"{DefaultIfBlank(tagName, "-")}  |  {DefaultIfBlank(confidence, "fallback")}";
+        MiniInspectorDetailTextBlock.Text = $"{shortSelector}  |  {DefaultIfBlank(issue, "No issue detected")}";
+    }
+
+    public void SetZoomPreview(byte[] imageBytes, double zoom)
+    {
+        if (!_isZoomEnabled || imageBytes.Length == 0)
+        {
+            return;
+        }
+
+        using var stream = new MemoryStream(imageBytes);
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.StreamSource = stream;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        ZoomPreviewImage.Source = bitmap;
+        ZoomPreviewScale.ScaleX = Math.Clamp(zoom, 1.1, 3);
+        ZoomPreviewScale.ScaleY = Math.Clamp(zoom, 1.1, 3);
+        UpdateZoomPreviewVisibility();
+    }
+
     public void InspectCenter()
     {
         UpdateState();
@@ -127,6 +196,32 @@ public partial class LensWindow : Window
     private void LockButton_Click(object sender, RoutedEventArgs e)
     {
         TogglePin();
+    }
+
+    private void SnapButton_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateState();
+        SnapRequested?.Invoke(this, State);
+    }
+
+    private void ZoomButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isZoomEnabled = !_isZoomEnabled;
+        if (!_isZoomEnabled)
+        {
+            ZoomPreviewImage.Source = null;
+        }
+
+        UpdateModeButtons();
+        UpdateZoomPreviewVisibility();
+        ZoomChanged?.Invoke(this, _isZoomEnabled);
+    }
+
+    private void AutoChangeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isCaptureOnChangeEnabled = !_isCaptureOnChangeEnabled;
+        UpdateModeButtons();
+        CaptureOnChangeChanged?.Invoke(this, _isCaptureOnChangeEnabled);
     }
 
     private void ResizeHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -200,6 +295,15 @@ public partial class LensWindow : Window
             ? System.Windows.Media.Brushes.DarkSlateBlue
             : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(37, 49, 61));
         LockButton.Content = _isPinned ? "L*" : "L";
+        SnapButton.Background = new MediaSolidColorBrush(MediaColor.FromRgb(37, 49, 61));
+        ZoomButton.Background = _isZoomEnabled
+            ? MediaBrushes.DarkSlateBlue
+            : new MediaSolidColorBrush(MediaColor.FromRgb(37, 49, 61));
+        ZoomButton.Content = _isZoomEnabled ? "Z*" : "Z";
+        AutoChangeButton.Background = _isCaptureOnChangeEnabled
+            ? MediaBrushes.DarkSlateBlue
+            : new MediaSolidColorBrush(MediaColor.FromRgb(37, 49, 61));
+        AutoChangeButton.Content = _isCaptureOnChangeEnabled ? "A*" : "A";
         ResizeHandle.Visibility = _isPinned ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -221,6 +325,7 @@ public partial class LensWindow : Window
         GuideGrid.Margin = shouldMoveHeaderDown
             ? new Thickness(2, 2, 2, 26)
             : new Thickness(2, 26, 2, 2);
+        ZoomPreviewImage.Margin = GuideGrid.Margin;
     }
 
     private void UpdateWindowSize()
@@ -230,6 +335,13 @@ public partial class LensWindow : Window
         RootCanvas.Width = Width;
         RootCanvas.Height = Height;
         HeaderBorder.Width = Width;
+    }
+
+    private void UpdateZoomPreviewVisibility()
+    {
+        ZoomPreviewImage.Visibility = _isZoomEnabled && ZoomPreviewImage.Source is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private ScreenRect GetCaptureBounds()
@@ -257,5 +369,10 @@ public partial class LensWindow : Window
     private void RequestCenterInspection()
     {
         InspectCenterRequested?.Invoke(this, State);
+    }
+
+    private static string DefaultIfBlank(string value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value;
     }
 }

@@ -28,6 +28,10 @@ public partial class SettingsWindow : Window
         ThemeComboBox.ItemsSource = Enum.GetValues<ThemeMode>();
         ThemeComboBox.SelectedItem = settings.Theme;
         TopmostCheckBox.IsChecked = settings.Ui.KeepResultWindowsTopmost;
+        LensSnapToElementCheckBox.IsChecked = settings.Ui.EnableLensSnapToElement;
+        LensZoomPreviewCheckBox.IsChecked = settings.Ui.EnableLensZoomPreview;
+        LensZoomFactorTextBox.Text = settings.Ui.LensZoomFactor.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        LensCaptureOnChangeCheckBox.IsChecked = settings.Ui.EnableLensCaptureOnChange;
         EnableGlobalShortcutsCheckBox.IsChecked = Settings.Keyboard.EnableGlobalShortcuts;
         EnableLocalShortcutsCheckBox.IsChecked = Settings.Keyboard.EnableLocalShortcuts;
         LoadShortcutRows(Settings.Keyboard);
@@ -118,6 +122,18 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        if (!double.TryParse(
+                LensZoomFactorTextBox.Text,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var lensZoomFactor)
+            || lensZoomFactor < 1.1
+            || lensZoomFactor > 3)
+        {
+            ShowValidation("Lens zoom factor must be between 1.1 and 3. Use a dot for decimals.");
+            return;
+        }
+
         var captureDirectory = CaptureDirectoryTextBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(captureDirectory))
         {
@@ -173,7 +189,11 @@ public partial class SettingsWindow : Window
             {
                 CdpPort = port,
                 LensInspectionDelayMs = lensDelay,
-                KeepResultWindowsTopmost = TopmostCheckBox.IsChecked == true
+                KeepResultWindowsTopmost = TopmostCheckBox.IsChecked == true,
+                EnableLensSnapToElement = LensSnapToElementCheckBox.IsChecked == true,
+                EnableLensZoomPreview = LensZoomPreviewCheckBox.IsChecked == true,
+                LensZoomFactor = lensZoomFactor,
+                EnableLensCaptureOnChange = LensCaptureOnChangeCheckBox.IsChecked == true
             }
         };
 

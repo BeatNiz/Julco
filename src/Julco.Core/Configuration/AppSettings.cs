@@ -35,7 +35,7 @@ public sealed record AppSettings(
             Privacy = Privacy ?? PrivacySettings.Default,
             Keyboard = (Keyboard ?? KeyboardShortcutSettings.Default).Normalized(),
             IssueTrackers = (IssueTrackers ?? IssueTrackerSettings.Default).Normalized(),
-            Ui = Ui ?? UiSettings.Default
+            Ui = (Ui ?? UiSettings.Default).Normalized()
         };
     }
 

@@ -152,6 +152,26 @@
                             <TextBlock Text="Lens delay ms" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" />
                             <TextBox x:Name="LensDelayTextBox" Grid.Column="1" />
                         </Grid>
+                        <CheckBox x:Name="LensSnapToElementCheckBox"
+                                  Content="Enable snap to detected element bounds"
+                                  ToolTip="When enabled, the lens can resize itself to the real border of the element detected under the center point."
+                                  Margin="0,12,0,0" />
+                        <CheckBox x:Name="LensZoomPreviewCheckBox"
+                                  Content="Enable visual zoom preview inside the lens"
+                                  ToolTip="Shows a magnified preview of the framed area after live inspection refreshes."
+                                  Margin="0,8,0,0" />
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Zoom factor" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" />
+                            <TextBox x:Name="LensZoomFactorTextBox" Grid.Column="1" />
+                        </Grid>
+                        <CheckBox x:Name="LensCaptureOnChangeCheckBox"
+                                  Content="Capture automatically when the detected element changes"
+                                  ToolTip="Useful for dynamic pages. Julco creates an evidence package when the lens detects a different element after a short cooldown."
+                                  Margin="0,8,0,0" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

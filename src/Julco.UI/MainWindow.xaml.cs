@@ -1,5 +1,7 @@
 using System.IO;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.ComponentModel;
 using System.Windows;
@@ -12,6 +14,7 @@ using Julco.Configuration;
 using Julco.Capture;
 using Julco.Cdp;
 using Julco.Core.Configuration;
+using Julco.Core.Geometry;
 using Julco.Core.Privacy;
 using Forms = System.Windows.Forms;
 
@@ -43,6 +46,9 @@ public partial class MainWindow : Window
     private BrowserKind? _activeBrowser;
     private WebImageResource? _lastLensPreviewImage;
     private bool _isInspectingLens;
+    private bool _isAutoCapturingLens;
+    private DateTimeOffset _lastLensAutoCaptureAt = DateTimeOffset.MinValue;
+    private string _lastLensAutoCaptureSignature = string.Empty;
     private bool _isCompactMode;
     private bool _isApplyingSettings;
     private bool _isSourceInitialized;
@@ -406,7 +412,13 @@ public partial class MainWindow : Window
         _lensWindow.CaptureRequested += LensWindow_CaptureRequested;
         _lensWindow.FreezeChanged += LensWindow_FreezeChanged;
         _lensWindow.LockChanged += LensWindow_LockChanged;
+        _lensWindow.SnapRequested += LensWindow_SnapRequested;
+        _lensWindow.ZoomChanged += LensWindow_ZoomChanged;
+        _lensWindow.CaptureOnChangeChanged += LensWindow_CaptureOnChangeChanged;
         _lensWindow.Closed += LensWindow_Closed;
+        _lensWindow.SetSmartDefaults(
+            _settings.Ui.EnableLensZoomPreview,
+            _settings.Ui.EnableLensCaptureOnChange);
         _lensWindow.Show();
         PlaceLensNearMainWindow(_lensWindow);
         LensButtonTextBlock.Text = "Close";
@@ -453,6 +465,42 @@ public partial class MainWindow : Window
         UpdateHealthPanel();
     }
 
+    private void LensWindow_SnapRequested(object? sender, LensFrameState state)
+    {
+        SnapLensToCurrentElement();
+    }
+
+    private async void LensWindow_ZoomChanged(object? sender, bool isZoomEnabled)
+    {
+        _settings = _settings with
+        {
+            Ui = _settings.Ui with
+            {
+                EnableLensZoomPreview = isZoomEnabled
+            }
+        };
+        SetStatus(isZoomEnabled
+            ? "Lens zoom preview enabled."
+            : "Lens zoom preview disabled.");
+        await SaveSettingsAsync();
+    }
+
+    private async void LensWindow_CaptureOnChangeChanged(object? sender, bool isEnabled)
+    {
+        _lastLensAutoCaptureSignature = string.Empty;
+        _settings = _settings with
+        {
+            Ui = _settings.Ui with
+            {
+                EnableLensCaptureOnChange = isEnabled
+            }
+        };
+        SetStatus(isEnabled
+            ? "Lens capture-on-change enabled."
+            : "Lens capture-on-change disabled.");
+        await SaveSettingsAsync();
+    }
+
     private void LensWindow_Closed(object? sender, EventArgs e)
     {
         if (_lensWindow is not null)
@@ -462,6 +510,9 @@ public partial class MainWindow : Window
             _lensWindow.CaptureRequested -= LensWindow_CaptureRequested;
             _lensWindow.FreezeChanged -= LensWindow_FreezeChanged;
             _lensWindow.LockChanged -= LensWindow_LockChanged;
+            _lensWindow.SnapRequested -= LensWindow_SnapRequested;
+            _lensWindow.ZoomChanged -= LensWindow_ZoomChanged;
+            _lensWindow.CaptureOnChangeChanged -= LensWindow_CaptureOnChangeChanged;
             _lensWindow.Closed -= LensWindow_Closed;
         }
 
@@ -470,6 +521,7 @@ public partial class MainWindow : Window
         LensButtonTextBlock.Text = "Lens";
         LensStateTextBlock.Text = "Inactive";
         _autoLensTimer.Stop();
+        _lastLensAutoCaptureSignature = string.Empty;
         UpdateHealthPanel();
         SetStatus("Lens closed.");
     }
@@ -505,13 +557,22 @@ public partial class MainWindow : Window
             ShowInspection(target, result);
             _lensCoordinator.SetDetectedType(DetectLensContentType(result));
             _lensWindow?.SetDetectedType(_lensCoordinator.DetectedType);
+            UpdateLensMiniInspector(result);
             UpdateLensStateText(state);
+            if (_settings.Ui.EnableLensSnapToElement)
+            {
+                SnapLensToElement(result);
+            }
+
+            await UpdateLensZoomPreviewAsync(state);
             var historyKey = $"{result.TagName}|{result.Selector}";
             if (!string.Equals(_lensCoordinator.HistoryKey, historyKey, StringComparison.Ordinal))
             {
                 _lensCoordinator.HistoryKey = historyKey;
                 AddHistory($"{DateTime.Now:HH:mm:ss}  {result.TagName}  live lens");
             }
+
+            await CaptureLensOnChangeAsync(target, state, result);
 
             SetStatus("Lens inspection completed.");
         }
@@ -598,7 +659,7 @@ public partial class MainWindow : Window
         return target.Type.Equals("firefox-page", StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task CaptureLensAsync()
+    private async Task CaptureLensAsync(CaptureNotes? notesOverride = null, bool promptForNotes = true)
     {
         if (_lensWindow is null || _lensCoordinator.LastState is null)
         {
@@ -612,7 +673,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var notes = PromptForEvidenceNotes();
+        var notes = notesOverride ?? (promptForNotes ? PromptForEvidenceNotes() : CaptureNotes.Empty);
 
         try
         {
@@ -1010,6 +1071,167 @@ public partial class MainWindow : Window
             height,
             bytes.Length,
             true);
+    }
+
+    private void SnapLensToCurrentElement()
+    {
+        if (_currentInspection is null)
+        {
+            SetStatus("Inspect an element before using snap.");
+            return;
+        }
+
+        if (SnapLensToElement(_currentInspection))
+        {
+            SetStatus("Lens snapped to detected element bounds.");
+            return;
+        }
+
+        SetStatus("Snap unavailable: the detected element does not expose usable screen bounds.");
+    }
+
+    private bool SnapLensToElement(SelectorInspectionResult inspection)
+    {
+        if (_lensWindow is null
+            || inspection.ElementBounds is not { IsEmpty: false } bounds
+            || bounds.Width < 4
+            || bounds.Height < 4)
+        {
+            return false;
+        }
+
+        var padded = new ScreenRect(
+            Math.Max(0, bounds.X - 2),
+            Math.Max(0, bounds.Y - 2),
+            Math.Max(8, bounds.Width + 4),
+            Math.Max(8, bounds.Height + 4));
+        _lensWindow.ApplyCaptureBounds(padded);
+        _lensCoordinator.UpdateState(_lensWindow.State);
+        LensStateTextBlock.Text = _lensCoordinator.FormatStateText();
+        return true;
+    }
+
+    private void UpdateLensMiniInspector(SelectorInspectionResult result)
+    {
+        var issue = CommonIssueDetector.Detect(result).FirstOrDefault();
+        _lensWindow?.SetMiniInspector(
+            result.TagName,
+            result.Selector,
+            result.LensMatch?.Confidence ?? InferLensConfidence(result),
+            issue is null ? "No issue detected" : $"{issue.Severity}: {issue.Title}");
+    }
+
+    private async Task UpdateLensZoomPreviewAsync(LensFrameState state)
+    {
+        if (_lensWindow?.IsZoomEnabled != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = await CaptureRegionBytesAsync(state, hideLens: true);
+            _lensWindow.SetZoomPreview(bytes, _settings.Ui.LensZoomFactor);
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Lens zoom preview unavailable: {exception.Message}");
+        }
+    }
+
+    private async Task CaptureLensOnChangeAsync(
+        CdpTarget target,
+        LensFrameState state,
+        SelectorInspectionResult result)
+    {
+        if (_lensWindow?.IsCaptureOnChangeEnabled != true || _isAutoCapturingLens)
+        {
+            return;
+        }
+
+        var signature = BuildLensChangeSignature(target, state, result);
+        if (string.IsNullOrWhiteSpace(_lastLensAutoCaptureSignature))
+        {
+            _lastLensAutoCaptureSignature = signature;
+            return;
+        }
+
+        if (string.Equals(signature, _lastLensAutoCaptureSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (DateTimeOffset.Now - _lastLensAutoCaptureAt < TimeSpan.FromSeconds(8))
+        {
+            return;
+        }
+
+        _lastLensAutoCaptureSignature = signature;
+        _lastLensAutoCaptureAt = DateTimeOffset.Now;
+        _isAutoCapturingLens = true;
+        try
+        {
+            var notes = CaptureNotes.Empty with
+            {
+                Observation = "Automatic capture created because Julco detected a changed element inside the lens.",
+                Category = "Dynamic change",
+                Severity = "Low",
+                Status = "Captured",
+                Tags = "auto-change,lens",
+                UpdatedAt = DateTimeOffset.Now
+            };
+            await CaptureLensAsync(notes, promptForNotes: false);
+        }
+        finally
+        {
+            _isAutoCapturingLens = false;
+        }
+    }
+
+    private static string BuildLensChangeSignature(
+        CdpTarget target,
+        LensFrameState state,
+        SelectorInspectionResult result)
+    {
+        var issue = CommonIssueDetector.Detect(result).FirstOrDefault()?.Title ?? "-";
+        return string.Join(
+            "|",
+            target.Id,
+            result.TagName,
+            result.Selector,
+            result.LensMatch?.Confidence ?? "-",
+            issue,
+            StableShortHash(result.OuterHtml),
+            Math.Round(state.Bounds.Width),
+            Math.Round(state.Bounds.Height));
+    }
+
+    private static string StableShortHash(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..12];
+    }
+
+    private static string InferLensConfidence(SelectorInspectionResult inspection)
+    {
+        var tag = inspection.TagName.Trim().ToLowerInvariant();
+        if (tag is "img" or "image" or "canvas" or "svg")
+        {
+            return "exact image";
+        }
+
+        if (inspection.Images.Any(image => !image.IsLensFrame))
+        {
+            return "nearest image";
+        }
+
+        return tag is "div" or "section" or "article" or "main" or "nav"
+            ? "container"
+            : "fallback";
     }
 
     private static string DetectLensContentType(SelectorInspectionResult inspection)
@@ -1526,6 +1748,9 @@ public partial class MainWindow : Window
                 ?? _usageProfiles.First(profile => profile.Profile == UiSettings.Default.Profile);
             ApplyTheme();
             ApplyUsageProfile(GetActiveUsageProfile(), selectPriorityTab: false);
+            _lensWindow?.SetSmartDefaults(
+                _settings.Ui.EnableLensZoomPreview,
+                _settings.Ui.EnableLensCaptureOnChange);
         }
         finally
         {

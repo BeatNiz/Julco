@@ -4,7 +4,7 @@
         Title="Julco Lens"
         Width="420"
         Height="260"
-        MinWidth="240"
+        MinWidth="320"
         MinHeight="44"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -25,6 +25,18 @@
                     BorderThickness="2"
                     Background="#22101318"
                     CornerRadius="4" />
+
+            <Image x:Name="ZoomPreviewImage"
+                   Margin="2,28,2,2"
+                   Stretch="Fill"
+                   Opacity="0.82"
+                   Visibility="Collapsed"
+                   IsHitTestVisible="False"
+                   RenderTransformOrigin="0.5,0.5">
+                <Image.RenderTransform>
+                    <ScaleTransform x:Name="ZoomPreviewScale" ScaleX="1.35" ScaleY="1.35" />
+                </Image.RenderTransform>
+            </Image>
 
             <Grid x:Name="GuideGrid"
                   IsHitTestVisible="False"
@@ -53,6 +65,32 @@
                     MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"
                     MouseLeftButtonUp="ResizeHandle_MouseLeftButtonUp"
                     MouseMove="ResizeHandle_MouseMove" />
+
+            <Border x:Name="MiniInspectorBorder"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Bottom"
+                    MaxWidth="360"
+                    Margin="8,0,28,8"
+                    Padding="8,5"
+                    Background="#E8101218"
+                    BorderBrush="#553A9CCB"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    IsHitTestVisible="False">
+                <StackPanel>
+                    <TextBlock x:Name="MiniInspectorTitleTextBlock"
+                               Text="-"
+                               Foreground="#F4F6F8"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="MiniInspectorDetailTextBlock"
+                               Text="Move the lens over a page element."
+                               Foreground="#B8C1CC"
+                               FontSize="10"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
         </Grid>
 
         <Border x:Name="HeaderBorder"
@@ -106,6 +144,45 @@
                         FontSize="11"
                         ToolTip="Lock lens movement and resizing."
                         Click="LockButton_Click" />
+                <Button x:Name="SnapButton"
+                        DockPanel.Dock="Left"
+                        Content="S"
+                        Width="22"
+                        Height="20"
+                        Padding="0"
+                        Margin="0,0,6,0"
+                        Background="#25313D"
+                        BorderBrush="#66D9FF"
+                        Foreground="#FFFFFF"
+                        FontSize="11"
+                        ToolTip="Snap the lens to the detected element bounds."
+                        Click="SnapButton_Click" />
+                <Button x:Name="ZoomButton"
+                        DockPanel.Dock="Left"
+                        Content="Z"
+                        Width="22"
+                        Height="20"
+                        Padding="0"
+                        Margin="0,0,6,0"
+                        Background="#25313D"
+                        BorderBrush="#66D9FF"
+                        Foreground="#FFFFFF"
+                        FontSize="11"
+                        ToolTip="Toggle visual zoom preview inside the lens."
+                        Click="ZoomButton_Click" />
+                <Button x:Name="AutoChangeButton"
+                        DockPanel.Dock="Left"
+                        Content="A"
+                        Width="22"
+                        Height="20"
+                        Padding="0"
+                        Margin="0,0,8,0"
+                        Background="#25313D"
+                        BorderBrush="#66D9FF"
+                        Foreground="#FFFFFF"
+                        FontSize="11"
+                        ToolTip="Capture automatically when the detected element changes."
+                        Click="AutoChangeButton_Click" />
                 <TextBlock x:Name="TypeTextBlock"
                            DockPanel.Dock="Right"
                            Text="type: -"

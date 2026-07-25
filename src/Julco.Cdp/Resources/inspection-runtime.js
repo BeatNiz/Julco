@@ -110,6 +110,16 @@
     };
   };
 
+  const toScreenRect = rect => {
+    const { chromeLeft, chromeTop } = calculateChromeOffset();
+    return {
+      x: window.screenX + chromeLeft + rect.left,
+      y: window.screenY + chromeTop + rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+  };
+
   const calculateRegion = (regionLeft, regionTop, regionWidth, regionHeight) => {
     const topLeft = toViewport(regionLeft, regionTop);
     const bottomRight = toViewport(regionLeft + regionWidth, regionTop + regionHeight);
@@ -250,6 +260,41 @@
     return images.sort((a, b) => (b.priority || 0) - (a.priority || 0));
   };
 
+  const buildLensMatch = (element, images, region, viewportX, viewportY) => {
+    if (!element) return { confidence: "fallback", reason: "No element was available at the lens center." };
+    const tag = (element.localName || "").toLowerCase();
+    const rect = element.getBoundingClientRect?.();
+    const pointInsideElement = rect
+      && Number.isFinite(viewportX)
+      && Number.isFinite(viewportY)
+      && viewportX >= rect.left
+      && viewportX <= rect.right
+      && viewportY >= rect.top
+      && viewportY <= rect.bottom;
+    const regionArea = region ? Math.max(1, (region.right - region.left) * (region.bottom - region.top)) : 1;
+    const elementArea = rect ? Math.max(1, rect.width * rect.height) : 1;
+    const sizeRatio = Math.min(regionArea, elementArea) / Math.max(regionArea, elementArea);
+    const topImage = images?.[0];
+
+    if ((tag === "img" || tag === "image" || tag === "canvas" || tag === "svg") && pointInsideElement) {
+      return { confidence: "exact image", reason: "The lens center is inside a direct visual element." };
+    }
+
+    if (topImage && (topImage.priority || 0) >= 10000000) {
+      return { confidence: "nearest image", reason: "A visual resource overlaps the lens center or frame." };
+    }
+
+    if (pointInsideElement && sizeRatio > 0.55) {
+      return { confidence: "container", reason: "The detected element closely matches the framed area." };
+    }
+
+    if (pointInsideElement) {
+      return { confidence: "container", reason: "The lens center is inside this element, but the frame covers a broader area." };
+    }
+
+    return { confidence: "fallback", reason: "Julco used the nearest inspectable element from the lens center." };
+  };
+
   runtime.inspectElement = (element, fallbackSelector, region = null, viewportX = Number.NaN, viewportY = Number.NaN) => {
     if (!element) {
       return {
@@ -260,6 +305,8 @@
       };
     }
 
+    const rect = element.getBoundingClientRect();
+    const images = collectImages(element, region, viewportX, viewportY);
     return {
       found: true,
       viewportX,
@@ -270,7 +317,9 @@
       outerHtml: element.outerHTML,
       computedStyle: readComputedStyle(element),
       matchedCssRules: readMatchedCssRules(element),
-      images: collectImages(element, region, viewportX, viewportY)
+      images,
+      elementBounds: toScreenRect(rect),
+      lensMatch: buildLensMatch(element, images, region, viewportX, viewportY)
     };
   };
 

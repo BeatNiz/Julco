@@ -30,7 +30,13 @@ internal static class SelectorInspectionPayloadReader
             consoleMessages,
             value.TryGetProperty("images", out var images)
                 ? ReadImages(images)
-                : Array.Empty<WebImageResource>());
+                : Array.Empty<WebImageResource>(),
+            value.TryGetProperty("elementBounds", out var bounds)
+                ? ReadBounds(bounds)
+                : null,
+            value.TryGetProperty("lensMatch", out var lensMatch)
+                ? ReadLensMatch(lensMatch)
+                : null);
     }
 
     public static IReadOnlyDictionary<string, string> ReadObjectDictionary(JsonElement element)
@@ -87,6 +93,32 @@ internal static class SelectorInspectionPayloadReader
             element.TryGetProperty("isLensFrame", out var lensFrame) && lensFrame.ValueKind == JsonValueKind.True);
     }
 
+    private static ElementScreenBounds? ReadBounds(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return new ElementScreenBounds(
+            GetDouble(element, "x"),
+            GetDouble(element, "y"),
+            GetDouble(element, "width"),
+            GetDouble(element, "height"));
+    }
+
+    private static LensMatchInfo? ReadLensMatch(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return new LensMatchInfo(
+            GetString(element, "confidence"),
+            GetString(element, "reason"));
+    }
+
     private static string GetString(JsonElement element, string property)
     {
         return element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
@@ -104,6 +136,13 @@ internal static class SelectorInspectionPayloadReader
     private static long GetLong(JsonElement element, string property)
     {
         return element.TryGetProperty(property, out var value) && value.TryGetInt64(out var result)
+            ? result
+            : 0;
+    }
+
+    private static double GetDouble(JsonElement element, string property)
+    {
+        return element.TryGetProperty(property, out var value) && value.TryGetDouble(out var result)
             ? result
             : 0;
     }
