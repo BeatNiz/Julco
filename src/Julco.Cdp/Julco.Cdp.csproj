@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <EmbeddedResource Include="Resources\inspection-runtime.js" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Julco.Core\Julco.Core.csproj" />
   </ItemGroup>
 </Project>
