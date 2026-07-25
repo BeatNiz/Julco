@@ -8,6 +8,7 @@ namespace Julco.UI;
 public partial class SettingsWindow : Window
 {
     private readonly List<ShortcutEditorRow> _shortcutRows = new();
+    private readonly IssueTrackerClient _issueTrackerClient = new();
 
     public SettingsWindow(AppSettings settings, string resolvedCaptureDirectory)
     {
@@ -48,6 +49,8 @@ public partial class SettingsWindow : Window
         JiraIssueTypeTextBox.Text = Settings.IssueTrackers.JiraIssueType;
         JiraEmailTextBox.Text = Settings.IssueTrackers.JiraEmail;
         JiraApiTokenTextBox.Text = Settings.IssueTrackers.JiraApiToken;
+        WireIntegrationStatusEvents();
+        UpdateIntegrationIndicators();
         ApplyTheme(settings.Theme);
     }
 
@@ -221,6 +224,118 @@ public partial class SettingsWindow : Window
             JiraApiTokenTextBox.Text).Normalized();
     }
 
+    private void WireIntegrationStatusEvents()
+    {
+        EnableGitHubCheckBox.Checked += IntegrationField_Changed;
+        EnableGitHubCheckBox.Unchecked += IntegrationField_Changed;
+        GitHubOwnerTextBox.TextChanged += IntegrationField_Changed;
+        GitHubRepositoryTextBox.TextChanged += IntegrationField_Changed;
+        GitHubTokenTextBox.TextChanged += IntegrationField_Changed;
+        GitHubLabelsTextBox.TextChanged += IntegrationField_Changed;
+        EnableJiraCheckBox.Checked += IntegrationField_Changed;
+        EnableJiraCheckBox.Unchecked += IntegrationField_Changed;
+        JiraBaseUrlTextBox.TextChanged += IntegrationField_Changed;
+        JiraProjectKeyTextBox.TextChanged += IntegrationField_Changed;
+        JiraIssueTypeTextBox.TextChanged += IntegrationField_Changed;
+        JiraEmailTextBox.TextChanged += IntegrationField_Changed;
+        JiraApiTokenTextBox.TextChanged += IntegrationField_Changed;
+    }
+
+    private void IntegrationField_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateIntegrationIndicators();
+    }
+
+    private void UpdateIntegrationIndicators()
+    {
+        var settings = BuildIssueTrackerSettings();
+        UpdateIntegrationIndicator(
+            GitHubStatusTextBlock,
+            TestGitHubButton,
+            settings.EnableGitHub,
+            settings.IsGitHubConfigured,
+            string.IsNullOrWhiteSpace(settings.ResolveGitHubToken()) ? "Missing token" : "Missing setup",
+            $"Ready: {settings.GitHubOwner}/{settings.GitHubRepository}");
+        UpdateIntegrationIndicator(
+            JiraStatusTextBlock,
+            TestJiraButton,
+            settings.EnableJira,
+            settings.IsJiraConfigured,
+            string.IsNullOrWhiteSpace(settings.ResolveJiraApiToken()) ? "Missing token" : "Missing setup",
+            $"Ready: {settings.JiraProjectKey}");
+    }
+
+    private void UpdateIntegrationIndicator(
+        System.Windows.Controls.TextBlock statusTextBlock,
+        System.Windows.Controls.Button testButton,
+        bool enabled,
+        bool ready,
+        string missingText,
+        string readyText)
+    {
+        if (!enabled)
+        {
+            statusTextBlock.Text = "Disabled";
+            statusTextBlock.Foreground = (System.Windows.Media.Brush)Resources["StatusDisabled"];
+            testButton.IsEnabled = false;
+            return;
+        }
+
+        if (!ready)
+        {
+            statusTextBlock.Text = missingText;
+            statusTextBlock.Foreground = (System.Windows.Media.Brush)Resources["StatusWarning"];
+            testButton.IsEnabled = false;
+            return;
+        }
+
+        statusTextBlock.Text = readyText;
+        statusTextBlock.Foreground = (System.Windows.Media.Brush)Resources["StatusReady"];
+        testButton.IsEnabled = true;
+    }
+
+    private async void TestGitHubButton_Click(object sender, RoutedEventArgs e)
+    {
+        await TestIntegrationAsync(
+            TestGitHubButton,
+            GitHubStatusTextBlock,
+            settings => _issueTrackerClient.TestGitHubAsync(settings, CancellationToken.None));
+    }
+
+    private async void TestJiraButton_Click(object sender, RoutedEventArgs e)
+    {
+        await TestIntegrationAsync(
+            TestJiraButton,
+            JiraStatusTextBlock,
+            settings => _issueTrackerClient.TestJiraAsync(settings, CancellationToken.None));
+    }
+
+    private async Task TestIntegrationAsync(
+        System.Windows.Controls.Button button,
+        System.Windows.Controls.TextBlock statusTextBlock,
+        Func<IssueTrackerSettings, Task<IssueTrackerSubmissionResult>> test)
+    {
+        var settings = BuildIssueTrackerSettings();
+        button.IsEnabled = false;
+        statusTextBlock.Text = "Testing...";
+        statusTextBlock.Foreground = (System.Windows.Media.Brush)Resources["StatusWarning"];
+        try
+        {
+            var result = await test(settings);
+            statusTextBlock.Text = result.Message;
+            statusTextBlock.Foreground = (System.Windows.Media.Brush)Resources[result.Succeeded ? "StatusReady" : "StatusWarning"];
+        }
+        catch (Exception exception)
+        {
+            statusTextBlock.Text = $"Test failed: {exception.Message}";
+            statusTextBlock.Foreground = (System.Windows.Media.Brush)Resources["StatusWarning"];
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
     private bool ValidateIssueTrackerSettings(IssueTrackerSettings settings)
     {
         if (settings.EnableGitHub
@@ -313,9 +428,13 @@ public partial class SettingsWindow : Window
         SetBrush("ControlBackground", light ? "#EEF3F8" : "#202630");
         SetBrush("MutedText", light ? "#526173" : "#AAB2C0");
         SetBrush("BorderColor", light ? "#CFD8E3" : "#2A2F3A");
+        SetBrush("StatusReady", light ? "#087A3D" : "#45D483");
+        SetBrush("StatusWarning", light ? "#9A5B00" : "#FFCA5C");
+        SetBrush("StatusDisabled", light ? "#68778A" : "#AAB2C0");
 
         Background = (System.Windows.Media.Brush)Resources["PanelBackground"];
         Foreground = (System.Windows.Media.Brush)Resources["PrimaryText"];
+        UpdateIntegrationIndicators();
     }
 
     private void SetBrush(string key, string color)

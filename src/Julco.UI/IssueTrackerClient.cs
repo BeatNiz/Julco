@@ -30,6 +30,54 @@ public sealed class IssueTrackerClient
         };
     }
 
+    public async Task<IssueTrackerSubmissionResult> TestGitHubAsync(
+        IssueTrackerSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var normalized = settings.Normalized();
+        if (!normalized.IsGitHubConfigured)
+        {
+            return IssueTrackerSubmissionResult.Failure("GitHub Issues", "GitHub is not ready. Enable it and provide owner, repository, and token.");
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://api.github.com/repos/{Uri.EscapeDataString(normalized.GitHubOwner)}/{Uri.EscapeDataString(normalized.GitHubRepository)}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", normalized.ResolveGitHubToken());
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        return response.IsSuccessStatusCode
+            ? IssueTrackerSubmissionResult.Success("GitHub Issues", $"GitHub ready: {normalized.GitHubOwner}/{normalized.GitHubRepository}.", null)
+            : IssueTrackerSubmissionResult.Failure("GitHub Issues", $"GitHub test failed ({(int)response.StatusCode}): {ExtractJsonMessage(payload)}");
+    }
+
+    public async Task<IssueTrackerSubmissionResult> TestJiraAsync(
+        IssueTrackerSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var normalized = settings.Normalized();
+        if (!normalized.IsJiraConfigured)
+        {
+            return IssueTrackerSubmissionResult.Failure("Jira", "Jira is not ready. Enable it and provide base URL, project key, email, and API token.");
+        }
+
+        var baseUrl = normalized.JiraBaseUrl.TrimEnd('/');
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{baseUrl}/rest/api/3/project/{Uri.EscapeDataString(normalized.JiraProjectKey)}");
+        var authBytes = Encoding.UTF8.GetBytes($"{normalized.JiraEmail}:{normalized.ResolveJiraApiToken()}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        return response.IsSuccessStatusCode
+            ? IssueTrackerSubmissionResult.Success("Jira", $"Jira ready: {normalized.JiraProjectKey}.", null)
+            : IssueTrackerSubmissionResult.Failure("Jira", $"Jira test failed ({(int)response.StatusCode}): {ExtractJsonMessage(payload)}");
+    }
+
     public static bool CanSubmit(IssueTrackerDraft draft, IssueTrackerSettings settings)
     {
         var normalized = settings.Normalized();
