@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private readonly CaptureWorkflowService _captureWorkflowService = new();
     private readonly ReportWorkflowService _reportWorkflowService = new();
     private readonly IssueTrackerWorkflowService _issueTrackerWorkflowService = new();
+    private readonly EvidencePackageService _evidencePackageService = new();
     private readonly DispatcherTimer _autoLensTimer;
     private SelectorInspectionResult? _currentInspection;
     private LensWindow? _lensWindow;
@@ -157,6 +158,8 @@ public partial class MainWindow : Window
     private void RenameCaptureButton_Click(object sender, RoutedEventArgs e) => RenameSelectedCapture();
 
     private void DeleteCaptureButton_Click(object sender, RoutedEventArgs e) => DeleteSelectedCapture();
+
+    private void RepairCaptureButton_Click(object sender, RoutedEventArgs e) => RepairSelectedCapture();
 
     private void RefreshCapturesButton_Click(object sender, RoutedEventArgs e) => LoadCaptures();
 
@@ -658,7 +661,7 @@ public partial class MainWindow : Window
                 "attributes.txt",
                 "image-resources.json");
 
-            var manifest = new CaptureManifest(
+            var manifest = CaptureManifest.CreateCurrent(
                 DateTimeOffset.Now,
                 target.Title,
                 target.Url,
@@ -684,7 +687,7 @@ public partial class MainWindow : Window
                 RedactExportText(JsonSerializer.Serialize(commonIssues, jsonOptions)),
                 sanitizedCommonIssues,
                 RedactExportText(JsonSerializer.Serialize(evidence, jsonOptions)),
-                RedactExportText(BuildEvidenceMarkdown(evidence)),
+                RedactExportText(EvidencePackageService.BuildEvidenceMarkdown(evidence)),
                 RedactExportText(JsonSerializer.Serialize(manifest, jsonOptions)),
                 RedactCaptureNotes(notes)));
 
@@ -735,7 +738,7 @@ public partial class MainWindow : Window
             (int)Math.Round(state.CenterPoint.Y)));
 
         return new EvidencePackage(
-            "1.0",
+            EvidenceSchemaVersion.Current,
             now,
             new EvidenceBrowserContext(
                 browser,
@@ -787,78 +790,6 @@ public partial class MainWindow : Window
         return "Chromium-compatible";
     }
 
-    private static string BuildEvidenceMarkdown(EvidencePackage evidence)
-    {
-        var lines = new List<string>
-        {
-            "# Julco Evidence Package",
-            string.Empty,
-            "## Summary",
-            $"- Created: {evidence.CreatedAt:yyyy-MM-dd HH:mm:ss zzz}",
-            $"- Browser: {evidence.Browser.Name}",
-            $"- Remote port: {evidence.Browser.RemotePort}",
-            $"- Page title: {NormalizeMarkdownLine(evidence.Page.Title)}",
-            $"- URL: {NormalizeMarkdownLine(evidence.Page.Url)}",
-            $"- Element: {evidence.Element.TagName}  {NormalizeMarkdownLine(evidence.Element.Selector)}",
-            $"- Detected type: {NormalizeMarkdownLine(evidence.Element.DetectedType)}",
-            $"- Lens frame: {evidence.Frame.Width:0}x{evidence.Frame.Height:0} at {evidence.Frame.X:0},{evidence.Frame.Y:0}",
-            $"- Center: {evidence.Frame.CenterX:0},{evidence.Frame.CenterY:0}",
-            $"- Screen: {NormalizeMarkdownLine(evidence.Frame.ScreenName)} ({evidence.Frame.ScreenWidth}x{evidence.Frame.ScreenHeight})",
-            string.Empty,
-            "## Notes",
-            BuildNotesMarkdown(evidence),
-            string.Empty,
-            "## Files",
-            $"- Screenshot: `{evidence.Files.Screenshot}`",
-            $"- Full inspection JSON: `{evidence.Files.Inspection}`",
-            $"- DOM: `{evidence.Files.Dom}`",
-            $"- Computed CSS: `{evidence.Files.ComputedCss}`",
-            $"- Console: `{evidence.Files.Console}`",
-            $"- Attributes: `{evidence.Files.Attributes}`",
-            $"- Image resources: `{evidence.Files.Images}`",
-            $"- Structured notes: `{evidence.Files.StructuredNotes}`",
-            $"- Notes: `{evidence.Files.Notes}`",
-            string.Empty,
-            "## Element Attributes"
-        };
-
-        if (evidence.Element.Attributes.Count == 0)
-        {
-            lines.Add("_No attributes captured._");
-        }
-        else
-        {
-            foreach (var attribute in evidence.Element.Attributes.OrderBy(item => item.Key))
-            {
-                lines.Add($"- `{attribute.Key}`: {NormalizeMarkdownLine(attribute.Value)}");
-            }
-        }
-
-        lines.Add(string.Empty);
-        lines.Add("## Counts");
-        lines.Add($"- Console messages: {evidence.Element.ConsoleMessageCount}");
-        lines.Add($"- Image resources: {evidence.Element.ImageResourceCount}");
-
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    private static string BuildNotesMarkdown(EvidencePackage evidence)
-    {
-        if (evidence.StructuredNotes is not null && evidence.StructuredNotes.HasContent)
-        {
-            return string.Join(
-                Environment.NewLine,
-                $"- Category: {evidence.StructuredNotes.Category}",
-                $"- Severity: {evidence.StructuredNotes.Severity}",
-                $"- Status: {evidence.StructuredNotes.Status}",
-                $"- Tags: {NormalizeMarkdownLine(evidence.StructuredNotes.Tags)}",
-                string.Empty,
-                evidence.StructuredNotes.Observation.Trim());
-        }
-
-        return string.IsNullOrWhiteSpace(evidence.Notes) ? "_No notes added._" : evidence.Notes;
-    }
-
     private PrivacyRedactorOptions GetPrivacyOptions()
     {
         return PrivacyRedactorOptions.FromSettings(_settings.Privacy ?? PrivacySettings.Default);
@@ -887,13 +818,6 @@ public partial class MainWindow : Window
             Observation = PrivacyRedactor.RedactText(notes.Observation, options),
             Tags = PrivacyRedactor.RedactText(notes.Tags, options)
         };
-    }
-
-    private static string NormalizeMarkdownLine(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value)
-            ? "-"
-            : value.ReplaceLineEndings(" ").Trim();
     }
 
     private static CaptureNotes LoadCaptureNotes(string captureDirectory)
@@ -1456,6 +1380,7 @@ public partial class MainWindow : Window
         RenameCaptureButton.Content = compact ? "Name" : "Rename";
         DeleteCaptureButton.Content = compact ? "Del" : "Delete";
         RefreshCapturesButton.Content = compact ? "Load" : "Reload";
+        RepairCaptureButton.Content = compact ? "Fix" : "Repair";
         EditEvidenceNotesButton.Content = compact ? "Note" : "Notes";
         CompareCapturesButton.Content = compact ? "Diff" : "Compare";
         ExportReportButton.Content = compact ? "Rpt" : "Report";
@@ -2164,6 +2089,75 @@ public partial class MainWindow : Window
         SetStatus("Capture deleted.");
     }
 
+    private void RepairSelectedCapture()
+    {
+        if (GetSelectedCapture() is not CaptureFileRecord capture)
+        {
+            SetStatus("Select an evidence package first.");
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Validating evidence package...");
+            var result = _evidencePackageService.Repair(capture.DirectoryPath);
+            var reportStatus = "Report rebuilt.";
+
+            try
+            {
+                _reportWorkflowService.ExportCaptureReport(
+                    capture.DirectoryPath,
+                    GetActiveUsageProfile().DisplayName,
+                    GetPrivacyOptions());
+            }
+            catch (Exception exception)
+            {
+                reportStatus = $"Report rebuild skipped: {exception.Message}";
+            }
+
+            LoadCaptures();
+            SelectCapture(capture.DirectoryPath);
+            UpdateCaptureNotesPreview();
+
+            var actionLines = result.Actions.Count == 0
+                ? "No repair actions were needed."
+                : string.Join(Environment.NewLine, result.Actions.Select(action => $"- {action}"));
+            var remainingIssues = result.After.Issues.Count == 0
+                ? "No remaining validation issues."
+                : string.Join(Environment.NewLine, result.After.Issues.Select(issue =>
+                    $"- {issue.Severity}: {issue.Message}"));
+
+            System.Windows.MessageBox.Show(
+                this,
+                string.Join(
+                    Environment.NewLine,
+                    $"Before: {result.Before.Summary}",
+                    $"After: {result.After.Summary}",
+                    reportStatus,
+                    string.Empty,
+                    "Actions:",
+                    actionLines,
+                    string.Empty,
+                    "Validation:",
+                    remainingIssues),
+                "Repair evidence package",
+                MessageBoxButton.OK,
+                result.After.IsValid ? MessageBoxImage.Information : MessageBoxImage.Warning);
+
+            SetStatus(result.After.IsValid
+                ? "Evidence package repaired and validated."
+                : $"Evidence package repaired with remaining issues: {result.After.Summary}");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Evidence repair failed: {exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void EditSelectedEvidenceNotes()
     {
         if (GetSelectedCapture() is not CaptureFileRecord capture)
@@ -2193,7 +2187,7 @@ public partial class MainWindow : Window
                     };
                     var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
                     File.WriteAllText(evidencePath, JsonSerializer.Serialize(evidence, jsonOptions));
-                    File.WriteAllText(summaryPath, BuildEvidenceMarkdown(evidence));
+                    File.WriteAllText(summaryPath, EvidencePackageService.BuildEvidenceMarkdown(evidence));
                 }
             }
             catch (JsonException)
@@ -2360,6 +2354,7 @@ public partial class MainWindow : Window
         RenameCaptureButton.IsEnabled = !isBusy;
         DeleteCaptureButton.IsEnabled = !isBusy;
         RefreshCapturesButton.IsEnabled = !isBusy;
+        RepairCaptureButton.IsEnabled = !isBusy;
         EditEvidenceNotesButton.IsEnabled = !isBusy;
         CompareCapturesButton.IsEnabled = !isBusy;
         ExportReportButton.IsEnabled = !isBusy;
