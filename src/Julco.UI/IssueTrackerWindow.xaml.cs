@@ -12,17 +12,20 @@ public partial class IssueTrackerWindow : Window
     private readonly IReadOnlyList<IssueTrackerDraft> _drafts;
     private readonly string _outputDirectory;
     private readonly IssueTrackerSettings _settings;
+    private readonly PrivacyPreviewModel _privacyPreview;
     private readonly IssueTrackerClient _client = new();
 
     public IssueTrackerWindow(
         IReadOnlyList<IssueTrackerDraft> drafts,
         string outputDirectory,
-        IssueTrackerSettings settings)
+        IssueTrackerSettings settings,
+        PrivacyPreviewModel privacyPreview)
     {
         InitializeComponent();
         _drafts = drafts;
         _outputDirectory = outputDirectory;
         _settings = settings.Normalized();
+        _privacyPreview = privacyPreview;
         DraftComboBox.ItemsSource = _drafts;
         DraftComboBox.SelectedIndex = _drafts.Count > 0 ? 0 : -1;
     }
@@ -44,7 +47,7 @@ public partial class IssueTrackerWindow : Window
         TitleTextBox.Text = draft.Title;
         BodyTextBox.Text = draft.Body;
         SavedPathTextBox.Text = draft.FilePath;
-        IntegrationStatusTextBlock.Text = IssueTrackerClient.BuildConfigurationHint(draft, _settings);
+        IntegrationStatusTextBlock.Text = BuildStatusText(draft);
         SubmitButton.IsEnabled = IssueTrackerClient.CanSubmit(draft, _settings);
     }
 
@@ -55,7 +58,46 @@ public partial class IssueTrackerWindow : Window
             return;
         }
 
+        if (!ConfirmSensitiveScreenshotSubmission(draft))
+        {
+            return;
+        }
+
         System.Windows.Clipboard.SetText(draft.Title);
+    }
+
+    private string BuildStatusText(IssueTrackerDraft draft)
+    {
+        var status = IssueTrackerClient.BuildConfigurationHint(draft, _settings);
+        if (_privacyPreview.ScreenshotRisk && _privacyPreview.PrivacySettings.WarnBeforeSendingSensitiveScreenshots)
+        {
+            status += " Screenshot warning: the safe package includes an unredacted screenshot.";
+        }
+
+        if (_privacyPreview.HasChanges)
+        {
+            status += $" Privacy preview: {_privacyPreview.Summary.TotalMatches} redaction finding(s) handled in draft text.";
+        }
+
+        return status;
+    }
+
+    private bool ConfirmSensitiveScreenshotSubmission(IssueTrackerDraft draft)
+    {
+        if (!_privacyPreview.ScreenshotRisk
+            || !_privacyPreview.PrivacySettings.WarnBeforeSendingSensitiveScreenshots
+            || draft.Provider is not (IssueTrackerProvider.GitHub or IssueTrackerProvider.Jira))
+        {
+            return true;
+        }
+
+        var result = System.Windows.MessageBox.Show(
+            this,
+            "The current privacy settings include an unredacted screenshot in safe exports. Screenshots can contain visible private data. Continue submitting?",
+            "Sensitive screenshot warning",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        return result == MessageBoxResult.Yes;
     }
 
     private void CopyBodyButton_Click(object sender, RoutedEventArgs e)

@@ -2748,10 +2748,10 @@ public partial class MainWindow : Window
             var result = _issueTrackerWorkflowService.BuildDrafts(
                 capture.DirectoryPath,
                 GetActiveUsageProfile().DisplayName,
-                GetPrivacyOptions(),
+                _settings.Privacy,
                 _settings.IssueTrackers);
 
-            var window = new IssueTrackerWindow(result.Drafts, result.OutputDirectory, result.Settings)
+            var window = new IssueTrackerWindow(result.Drafts, result.OutputDirectory, result.Settings, result.PrivacyPreview)
             {
                 Owner = this,
                 Topmost = _settings.Ui.KeepResultWindowsTopmost
@@ -2784,7 +2784,9 @@ public partial class MainWindow : Window
             var model = PrivacyPreviewModel.Create(
                 report,
                 GetPrivacyOptions(),
-                _settings.Privacy.IncludeScreenshotsInSafeExports);
+                _settings.Privacy.IncludeScreenshotsInSafeExports,
+                _settings.Privacy.BlurScreenshotsInSafeExports || !string.IsNullOrWhiteSpace(_settings.Privacy.ScreenshotRedactionBoxes),
+                _settings.Privacy);
             var window = new PrivacyPreviewWindow(model, ExportSafePackage)
             {
                 Owner = this,

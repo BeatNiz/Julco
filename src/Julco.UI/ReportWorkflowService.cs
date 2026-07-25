@@ -32,10 +32,6 @@ public sealed class ReportWorkflowService
         Directory.CreateDirectory(safeDirectory);
 
         var safeReport = model.Redacted with { ScreenshotPath = string.Empty };
-        var safeContext = CaptureReportTemplateStore.CreateContext(safeReport);
-        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.md"), new MarkdownReportRenderer().Render(safeContext), Encoding.UTF8);
-        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.html"), new HtmlReportRenderer().Render(safeContext), Encoding.UTF8);
-        new PdfReportRenderer().Write(Path.Combine(safeDirectory, "safe-report.pdf"), safeContext);
 
         File.WriteAllText(
             Path.Combine(safeDirectory, "privacy-summary.md"),
@@ -52,8 +48,26 @@ public sealed class ReportWorkflowService
 
         if (model.IncludeScreenshotInSafeExport && File.Exists(model.Original.ScreenshotPath))
         {
-            File.Copy(model.Original.ScreenshotPath, Path.Combine(safeDirectory, "screenshot-unredacted.png"), overwrite: true);
+            var destination = Path.Combine(
+                safeDirectory,
+                model.ScreenshotWillBeRedacted ? "screenshot-redacted.png" : "screenshot-unredacted.png");
+            if (model.ScreenshotWillBeRedacted)
+            {
+                ScreenshotRedactionService.CreateRedactedScreenshot(
+                    model.Original.ScreenshotPath,
+                    destination,
+                    model.PrivacySettings);
+            }
+            else
+            {
+                File.Copy(model.Original.ScreenshotPath, destination, overwrite: true);
+            }
         }
+
+        var safeContext = CaptureReportTemplateStore.CreateContext(safeReport);
+        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.md"), new MarkdownReportRenderer().Render(safeContext), Encoding.UTF8);
+        File.WriteAllText(Path.Combine(safeDirectory, "safe-report.html"), new HtmlReportRenderer().Render(safeContext), Encoding.UTF8);
+        new PdfReportRenderer().Write(Path.Combine(safeDirectory, "safe-report.pdf"), safeContext);
 
         return safeDirectory;
     }
@@ -71,7 +85,9 @@ public sealed class ReportWorkflowService
                 "## Policy",
                 string.Empty,
                 model.IncludeScreenshotInSafeExport
-                    ? "Screenshot was included because Settings allows screenshots in safe exports. Review visual content before sharing."
+                    ? model.ScreenshotWillBeRedacted
+                        ? "Screenshot was included as a redacted copy. Manual boxes and blur settings were applied."
+                        : "Screenshot was included because Settings allows screenshots in safe exports. Review visual content before sharing."
                     : "Screenshot was omitted because safe exports do not include visual captures by default.",
                 string.Empty,
                 "## Source",

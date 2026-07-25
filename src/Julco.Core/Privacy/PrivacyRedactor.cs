@@ -62,6 +62,25 @@ public static class PrivacyRedactor
             result = UrlRegex.Replace(result, RedactUrl);
         }
 
+        foreach (var rule in options.EffectiveCustomRules)
+        {
+            try
+            {
+                result = Regex.Replace(
+                    result,
+                    rule.Pattern,
+                    $"[REDACTED_{SanitizeMarker(rule.Name)}]",
+                    RegexOptions.IgnoreCase,
+                    TimeSpan.FromMilliseconds(250));
+            }
+            catch (ArgumentException)
+            {
+            }
+            catch (RegexMatchTimeoutException)
+            {
+            }
+        }
+
         return result;
     }
 
@@ -77,7 +96,8 @@ public static class PrivacyRedactor
             options.RedactTokens ? TokenKeyValueRegex.Matches(value).Count + BearerRegex.Matches(value).Count : 0,
             options.RedactCookies ? CookieHeaderRegex.Matches(value).Count + CookieAttributeRegex.Matches(value).Count : 0,
             options.RedactPrivateUrls ? UrlRegex.Matches(value).Count : 0,
-            0);
+            0,
+            CountCustomRuleMatches(value, options.EffectiveCustomRules));
     }
 
     public static string RedactHtml(string? html, PrivacyRedactorOptions options)
@@ -147,5 +167,35 @@ public static class PrivacyRedactor
             path,
             @"(/user/|/users/|/account|/profile|/checkout|/cart|/order|/invoice|/admin|/private|/[A-F0-9]{16,}|/[0-9]{6,})",
             RegexOptions.IgnoreCase);
+    }
+
+    private static int CountCustomRuleMatches(string value, IReadOnlyList<CustomRedactionRule> rules)
+    {
+        var count = 0;
+        foreach (var rule in rules)
+        {
+            try
+            {
+                count += Regex.Matches(
+                    value,
+                    rule.Pattern,
+                    RegexOptions.IgnoreCase,
+                    TimeSpan.FromMilliseconds(250)).Count;
+            }
+            catch (ArgumentException)
+            {
+            }
+            catch (RegexMatchTimeoutException)
+            {
+            }
+        }
+
+        return count;
+    }
+
+    private static string SanitizeMarker(string value)
+    {
+        var clean = Regex.Replace(value.ToUpperInvariant(), @"[^A-Z0-9]+", "_").Trim('_');
+        return string.IsNullOrWhiteSpace(clean) ? "CUSTOM" : clean;
     }
 }

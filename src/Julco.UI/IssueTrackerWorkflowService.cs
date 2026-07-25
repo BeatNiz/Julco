@@ -10,11 +10,27 @@ public sealed class IssueTrackerWorkflowService
     public IssueTrackerWorkflowResult BuildDrafts(
         string captureDirectory,
         string usageProfile,
-        PrivacyRedactorOptions privacyOptions,
+        PrivacySettings privacySettings,
         IssueTrackerSettings settings)
     {
+        privacySettings = privacySettings.Normalized();
+        var privacyOptions = PrivacyRedactorOptions.FromSettings(privacySettings.SafeIssueTrackersByDefault
+            ? privacySettings with
+            {
+                RedactOnExport = true,
+                RedactEmails = true,
+                RedactTokens = true,
+                RedactCookies = true,
+                RedactPrivateUrls = true
+            }
+            : privacySettings);
         var report = CaptureReport.FromDirectory(captureDirectory, usageProfile)
             .Redacted(privacyOptions);
+        if (privacySettings.SafeIssueTrackersByDefault || !privacySettings.IncludeScreenshotsInSafeExports)
+        {
+            report = report with { ScreenshotPath = string.Empty };
+        }
+
         var outputDirectory = Path.Combine(captureDirectory, "issue-trackers");
         Directory.CreateDirectory(outputDirectory);
 
@@ -27,11 +43,20 @@ public sealed class IssueTrackerWorkflowService
                 Encoding.UTF8);
         }
 
-        return new IssueTrackerWorkflowResult(drafts, outputDirectory, settings.Normalized());
+        var original = CaptureReport.FromDirectory(captureDirectory, usageProfile);
+        var privacyPreview = PrivacyPreviewModel.Create(
+            original,
+            privacyOptions,
+            privacySettings.IncludeScreenshotsInSafeExports,
+            privacySettings.BlurScreenshotsInSafeExports || !string.IsNullOrWhiteSpace(privacySettings.ScreenshotRedactionBoxes),
+            privacySettings);
+
+        return new IssueTrackerWorkflowResult(drafts, outputDirectory, settings.Normalized(), privacyPreview);
     }
 }
 
 public sealed record IssueTrackerWorkflowResult(
     IReadOnlyList<IssueTrackerDraft> Drafts,
     string OutputDirectory,
-    IssueTrackerSettings Settings);
+    IssueTrackerSettings Settings,
+    PrivacyPreviewModel PrivacyPreview);

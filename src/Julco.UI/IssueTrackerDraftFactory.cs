@@ -60,10 +60,7 @@ public static class IssueTrackerDraftFactory
             "- [ ] Describe the expected UI, DOM, CSS, accessibility, or content behavior.",
             string.Empty,
             "## Evidence",
-            $"- Screenshot: `{RelativeEvidencePath("screenshot.png")}`",
-            $"- HTML report: `{RelativeEvidencePath("report/report.html")}`",
-            $"- PDF report: `{RelativeEvidencePath("report/report.pdf")}`",
-            $"- Markdown report: `{RelativeEvidencePath("report/report.md")}`",
+            BuildMarkdownEvidence(report),
             string.Empty,
             "## Technical details",
             BuildMarkdownDetails(report),
@@ -94,10 +91,7 @@ public static class IssueTrackerDraftFactory
             "* Describe the expected UI, DOM, CSS, accessibility, or content behavior.",
             string.Empty,
             "h2. Evidence",
-            $"* Screenshot: {{code}}{RelativeEvidencePath("screenshot.png")}{{code}}",
-            $"* HTML report: {{code}}{RelativeEvidencePath("report/report.html")}{{code}}",
-            $"* PDF report: {{code}}{RelativeEvidencePath("report/report.pdf")}{{code}}",
-            $"* Markdown report: {{code}}{RelativeEvidencePath("report/report.md")}{{code}}",
+            BuildJiraEvidence(report),
             string.Empty,
             "h2. Technical details",
             BuildJiraDetails(report),
@@ -127,10 +121,7 @@ public static class IssueTrackerDraftFactory
             "Describe the expected UI, DOM, CSS, accessibility, or content behavior.",
             string.Empty,
             "EVIDENCE FILES",
-            $"- {RelativeEvidencePath("screenshot.png")}",
-            $"- {RelativeEvidencePath("report/report.html")}",
-            $"- {RelativeEvidencePath("report/report.pdf")}",
-            $"- {RelativeEvidencePath("report/report.md")}",
+            BuildPlainEvidence(report),
             string.Empty,
             "TECHNICAL DETAILS",
             BuildPlainDetails(report),
@@ -150,6 +141,41 @@ public static class IssueTrackerDraftFactory
         }
 
         return $"Julco captured `{report.Selector}` on {report.PageUrl}. Review the attached evidence package for visual, DOM, CSS, console, and accessibility signals.";
+    }
+
+    private static string BuildMarkdownEvidence(CaptureReport report)
+    {
+        return string.Join(
+            Environment.NewLine,
+            EvidencePaths(report).Select(item => $"- {item.Label}: `{item.Path}`"));
+    }
+
+    private static string BuildJiraEvidence(CaptureReport report)
+    {
+        return string.Join(
+            Environment.NewLine,
+            EvidencePaths(report).Select(item => $"* {item.Label}: {{code}}{item.Path}{{code}}"));
+    }
+
+    private static string BuildPlainEvidence(CaptureReport report)
+    {
+        return string.Join(
+            Environment.NewLine,
+            EvidencePaths(report).Select(item => $"- {item.Label}: {item.Path}"));
+    }
+
+    private static IReadOnlyList<(string Label, string Path)> EvidencePaths(CaptureReport report)
+    {
+        var paths = new List<(string Label, string Path)>();
+        if (!string.IsNullOrWhiteSpace(report.ScreenshotPath))
+        {
+            paths.Add(("Screenshot", RelativeEvidencePath("screenshot.png")));
+        }
+
+        paths.Add(("HTML report", RelativeEvidencePath("report/report.html")));
+        paths.Add(("PDF report", RelativeEvidencePath("report/report.pdf")));
+        paths.Add(("Markdown report", RelativeEvidencePath("report/report.md")));
+        return paths;
     }
 
     private static string BuildMarkdownDetails(CaptureReport report)

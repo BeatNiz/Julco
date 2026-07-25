@@ -203,6 +203,32 @@
                                   Content="Include screenshots in safe exports"
                                   ToolTip="Screenshots can contain visible private data. Keep this off unless you reviewed the image."
                                   Margin="0,8,0,0" />
+                        <CheckBox x:Name="BlurScreenshotsInSafeExportsCheckBox"
+                                  Content="Blur/redact screenshots in safe exports"
+                                  ToolTip="When screenshots are included in a safe export, Julco writes a redacted copy instead of the original."
+                                  Margin="0,8,0,0" />
+                        <TextBlock Text="Screenshot redaction boxes"
+                                   Foreground="{StaticResource MutedText}"
+                                   Margin="0,12,0,4" />
+                        <TextBox x:Name="ScreenshotRedactionBoxesTextBox"
+                                 AcceptsReturn="True"
+                                 MinHeight="48"
+                                 TextWrapping="Wrap"
+                                 ToolTip="Manual boxes: one per line as x,y,width,height in screenshot coordinates." />
+                        <TextBlock Text="Custom text rules"
+                                   Foreground="{StaticResource MutedText}"
+                                   Margin="0,12,0,4" />
+                        <TextBox x:Name="CustomRedactionRulesTextBox"
+                                 AcceptsReturn="True"
+                                 MinHeight="88"
+                                 TextWrapping="Wrap"
+                                 ToolTip="One rule per line as name=regex. Example: customer_id=\\bCUST-[0-9]+\\b" />
+                        <CheckBox x:Name="SafeIssueTrackersByDefaultCheckBox"
+                                  Content="Use privacy-safe data for issue tracker drafts by default"
+                                  Margin="0,8,0,0" />
+                        <CheckBox x:Name="WarnBeforeSendingSensitiveScreenshotsCheckBox"
+                                  Content="Warn before sending GitHub/Jira drafts when screenshots may contain sensitive data"
+                                  Margin="0,8,0,0" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

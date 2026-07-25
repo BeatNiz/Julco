@@ -1,6 +1,8 @@
 using System.IO;
 using System.Text;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 
 namespace Julco.UI;
 
@@ -20,6 +22,27 @@ public partial class PrivacyPreviewWindow : Window
         SummaryTextBox.Text = model.SummaryText;
         OriginalTextBox.Text = model.OriginalPreview;
         RedactedTextBox.Text = model.RedactedPreview;
+        FieldPreviewListBox.ItemsSource = model.FieldPreviews;
+        FieldPreviewListBox.SelectedIndex = model.FieldPreviews.Count > 0 ? 0 : -1;
+        ScreenshotStatusTextBlock.Text = model.ScreenshotRisk
+            ? "Screenshot will be included without redaction. Review visible content before sharing or sending."
+            : model.IncludeScreenshotInSafeExport
+                ? model.ScreenshotWillBeRedacted
+                    ? "Screenshot will be included as a redacted copy."
+                    : "Screenshot will be included."
+                : "Screenshot is omitted from safe export.";
+        LoadScreenshotPreview();
+    }
+
+    private void FieldPreviewListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FieldPreviewListBox.SelectedItem is not Julco.Core.Privacy.PrivacyRedactionFieldPreview field)
+        {
+            return;
+        }
+
+        OriginalTextBox.Text = field.Before;
+        RedactedTextBox.Text = field.After;
     }
 
     private void CopySummaryButton_Click(object sender, RoutedEventArgs e)
@@ -51,5 +74,22 @@ public partial class PrivacyPreviewWindow : Window
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void LoadScreenshotPreview()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Original.ScreenshotPath)
+            || !File.Exists(_model.Original.ScreenshotPath))
+        {
+            return;
+        }
+
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.UriSource = new Uri(_model.Original.ScreenshotPath);
+        bitmap.EndInit();
+        bitmap.Freeze();
+        ScreenshotPreviewImage.Source = bitmap;
     }
 }

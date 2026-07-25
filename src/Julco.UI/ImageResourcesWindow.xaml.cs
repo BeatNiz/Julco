@@ -21,7 +21,7 @@ public partial class ImageResourcesWindow : Window
     public ImageResourcesWindow(IReadOnlyList<WebImageResource> images, PrivacyRedactorOptions? privacyOptions = null)
     {
         InitializeComponent();
-        _privacyOptions = privacyOptions ?? new PrivacyRedactorOptions(false, false, false, false, false, false);
+        _privacyOptions = privacyOptions ?? new PrivacyRedactorOptions(false, false, false, false, false, false, Array.Empty<CustomRedactionRule>());
         _images = images;
         SetImages(images);
     }

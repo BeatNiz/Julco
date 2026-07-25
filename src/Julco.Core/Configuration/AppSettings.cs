@@ -32,7 +32,7 @@ public sealed record AppSettings(
             Capture = Capture ?? CaptureSettings.Default,
             Export = Export ?? ExportSettings.Default,
             History = History ?? HistorySettings.Default,
-            Privacy = Privacy ?? PrivacySettings.Default,
+            Privacy = (Privacy ?? PrivacySettings.Default).Normalized(),
             Keyboard = (Keyboard ?? KeyboardShortcutSettings.Default).Normalized(),
             IssueTrackers = (IssueTrackers ?? IssueTrackerSettings.Default).Normalized(),
             Ui = (Ui ?? UiSettings.Default).Normalized()

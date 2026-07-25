@@ -42,6 +42,11 @@ public partial class SettingsWindow : Window
         RedactPrivateUrlsCheckBox.IsChecked = settings.Privacy.RedactPrivateUrls;
         RedactSelectedTextCheckBox.IsChecked = settings.Privacy.RedactSelectedText;
         IncludeScreenshotsInSafeExportsCheckBox.IsChecked = settings.Privacy.IncludeScreenshotsInSafeExports;
+        BlurScreenshotsInSafeExportsCheckBox.IsChecked = settings.Privacy.BlurScreenshotsInSafeExports;
+        ScreenshotRedactionBoxesTextBox.Text = settings.Privacy.ScreenshotRedactionBoxes;
+        CustomRedactionRulesTextBox.Text = settings.Privacy.CustomRedactionRules;
+        SafeIssueTrackersByDefaultCheckBox.IsChecked = settings.Privacy.SafeIssueTrackersByDefault;
+        WarnBeforeSendingSensitiveScreenshotsCheckBox.IsChecked = settings.Privacy.WarnBeforeSendingSensitiveScreenshots;
         EnableGitHubCheckBox.IsChecked = Settings.IssueTrackers.EnableGitHub;
         GitHubOwnerTextBox.Text = Settings.IssueTrackers.GitHubOwner;
         GitHubRepositoryTextBox.Text = Settings.IssueTrackers.GitHubRepository;
@@ -173,7 +178,7 @@ public partial class SettingsWindow : Window
             {
                 MaxEntries = historyMax
             },
-            Privacy = Settings.Privacy with
+            Privacy = (Settings.Privacy with
             {
                 RedactOnExport = RedactOnExportCheckBox.IsChecked == true,
                 RedactEmails = RedactEmailsCheckBox.IsChecked == true,
@@ -181,8 +186,13 @@ public partial class SettingsWindow : Window
                 RedactCookies = RedactCookiesCheckBox.IsChecked == true,
                 RedactPrivateUrls = RedactPrivateUrlsCheckBox.IsChecked == true,
                 RedactSelectedText = RedactSelectedTextCheckBox.IsChecked == true,
-                IncludeScreenshotsInSafeExports = IncludeScreenshotsInSafeExportsCheckBox.IsChecked == true
-            },
+                IncludeScreenshotsInSafeExports = IncludeScreenshotsInSafeExportsCheckBox.IsChecked == true,
+                BlurScreenshotsInSafeExports = BlurScreenshotsInSafeExportsCheckBox.IsChecked == true,
+                ScreenshotRedactionBoxes = ScreenshotRedactionBoxesTextBox.Text,
+                CustomRedactionRules = CustomRedactionRulesTextBox.Text,
+                SafeIssueTrackersByDefault = SafeIssueTrackersByDefaultCheckBox.IsChecked == true,
+                WarnBeforeSendingSensitiveScreenshots = WarnBeforeSendingSensitiveScreenshotsCheckBox.IsChecked == true
+            }).Normalized(),
             Keyboard = keyboardSettings,
             IssueTrackers = issueTrackers,
             Ui = Settings.Ui with
